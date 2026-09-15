@@ -1,0 +1,663 @@
+<!doctype html>
+<html lang="en" data-theme="forest">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Forest Chat</title>
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css" rel="stylesheet" type="text/css" />
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <style>
+      .chat-bubble-incoming {
+        background: var(--color-base-200);
+        border: 1px solid var(--color-base-300);
+        color: var(--color-base-content);
+        box-shadow: 0 1px 3px rgb(0 0 0 / 0.2);
+      }
+    </style>
+  </head>
+
+  <body class="bg-base-300 h-dvh overflow-hidden">
+    <!-- Login -->
+    <main id="login" class="hero h-full">
+      <div class="hero-content w-full max-w-sm flex-col">
+        <div class="avatar">
+          <div class="ring-primary ring-offset-base-300 w-28 rounded-full ring-2 ring-offset-4 bg-base-200">
+            <img id="login-avatar" alt="Your avatar" />
+          </div>
+        </div>
+        <h1 class="text-4xl font-bold">Forest Chat</h1>
+        <p class="text-base-content/70 text-center">Pick a name. Your avatar comes with it.</p>
+
+        <form id="login-form" class="card bg-base-100 w-full shadow-xl">
+          <div class="card-body gap-3">
+            <label class="input input-bordered w-full">
+              <span class="text-base-content/60">@</span>
+              <input
+                id="login-name"
+                type="text"
+                placeholder="your-name"
+                maxlength="24"
+                pattern="[\p{L}\p{N}_\-]+"
+                autocomplete="off"
+                required
+              />
+            </label>
+            <p class="text-base-content/60 text-xs">Letters, numbers, - and _ only.</p>
+            <p id="login-error" class="text-error hidden text-sm"></p>
+            <button class="btn btn-primary w-full">Enter the forest</button>
+          </div>
+        </form>
+      </div>
+    </main>
+
+    <!-- App -->
+    <div id="app" class="drawer lg:drawer-open hidden h-full">
+      <input id="drawer" type="checkbox" class="drawer-toggle" />
+
+      <!-- Chat pane -->
+      <div class="drawer-content flex h-full min-w-0 flex-col">
+        <header class="navbar bg-base-100 border-base-300 gap-2 border-b px-3">
+          <label for="drawer" class="btn btn-ghost btn-square lg:hidden" aria-label="Open menu">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          </label>
+          <div id="chat-head" class="flex min-w-0 flex-1 items-center gap-3"></div>
+          <span id="status" class="badge badge-ghost badge-sm">connecting…</span>
+        </header>
+
+        <section id="messages" class="flex-1 space-y-1 overflow-y-auto p-4"></section>
+
+        <div id="typing" class="text-base-content/70 flex h-6 items-center gap-2 px-5 text-sm"></div>
+
+        <form id="composer" class="bg-base-100 border-base-300 flex gap-2 border-t p-3">
+          <input
+            id="composer-input"
+            class="input input-bordered flex-1"
+            placeholder="Pick a chat to start"
+            maxlength="2000"
+            autocomplete="off"
+            disabled
+          />
+          <button id="composer-send" class="btn btn-primary" disabled>Send</button>
+        </form>
+      </div>
+
+      <!-- Sidebar -->
+      <aside class="drawer-side z-20">
+        <label for="drawer" class="drawer-overlay" aria-label="Close menu"></label>
+        <div class="bg-base-200 flex h-full w-80 flex-col">
+          <div id="me" class="border-base-300 flex items-center gap-3 border-b p-4"></div>
+
+          <div class="flex-1 overflow-y-auto p-2">
+            <h2 class="menu-title flex items-center justify-between">
+              Groups
+            </h2>
+            <form id="room-form" class="join mb-2 w-full px-2">
+              <input
+                id="room-input"
+                class="input input-sm input-bordered join-item flex-1"
+                placeholder="new or existing group"
+                maxlength="32"
+                autocomplete="off"
+              />
+              <button class="btn btn-sm btn-secondary join-item">Join</button>
+            </form>
+            <ul id="rooms" class="menu w-full gap-1"></ul>
+
+            <h2 class="menu-title mt-4">People</h2>
+            <ul id="people" class="menu w-full gap-1"></ul>
+          </div>
+
+          <div class="border-base-300 border-t p-3">
+            <button id="logout" class="btn btn-ghost btn-sm w-full">Switch name</button>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <div id="toast" class="toast toast-top toast-end z-50"></div>
+
+    <script>
+      "use strict";
+
+      // ---------- helpers ----------
+
+      const $ = (id) => document.getElementById(id);
+
+      /** Build DOM without innerHTML so user text can never inject markup. */
+      function h(tag, props = {}, ...children) {
+        const el = document.createElement(tag);
+        for (const [key, value] of Object.entries(props)) {
+          if (value == null || value === false) continue;
+          if (key.startsWith("on")) el.addEventListener(key.slice(2), value);
+          else if (key === "class") el.className = value;
+          else el.setAttribute(key, value);
+        }
+        for (const child of children.flat()) {
+          if (child == null || child === false) continue;
+          el.append(child instanceof Node ? child : document.createTextNode(String(child)));
+        }
+        return el;
+      }
+
+      const avatarUrl = (name) =>
+        `https://api.dicebear.com/9.x/adventurer/svg?seed=${encodeURIComponent(name)}`;
+      const roomAvatarUrl = (room) =>
+        `https://api.dicebear.com/9.x/shapes/svg?seed=${encodeURIComponent(room)}`;
+
+      function avatar(src, size = "w-10", online = null) {
+        const cls = online == null ? "avatar" : online ? "avatar avatar-online" : "avatar avatar-offline";
+        return h("div", { class: cls },
+          h("div", { class: `${size} rounded-full bg-base-300` }, h("img", { src, alt: "" })));
+      }
+
+      const timeFmt = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" });
+      const dayFmt = new Intl.DateTimeFormat(undefined, { weekday: "short", month: "short", day: "numeric" });
+
+      const chatKey = (chat) => `${chat.kind}:${chat.id}`;
+      const sameChat = (a, b) => a && b && a.kind === b.kind && a.id === b.id;
+      const NAME_RE = /^[\p{L}\p{N}_-]{1,24}$/u;
+      const ROOM_RE = /^[\p{L}\p{N}_-]{1,32}$/u;
+
+      function toast(message, kind = "error") {
+        const el = h("div", { class: `alert alert-${kind}` }, h("span", {}, message));
+        $("toast").append(el);
+        setTimeout(() => el.remove(), 3500);
+      }
+
+      // ---------- state ----------
+
+      const TYPING_IDLE_MS = 2000; // stop "typing" after this long without keystrokes
+      const TYPING_EXPIRE_MS = 6000; // hide a remote indicator if its "stop" never arrives
+
+      const state = {
+        me: null,
+        ws: null,
+        retry: null,
+        users: [],
+        rooms: [],
+        joined: new Set(),
+        dmPeers: new Set(),
+        active: null,
+        /** key -> { messages, loaded, unread } */
+        chats: new Map(),
+        /** key -> Map(from -> timeout id) */
+        typing: new Map(),
+        typingSentFor: null,
+        typingTimer: null,
+      };
+
+      function chatState(chat) {
+        const key = chatKey(chat);
+        if (!state.chats.has(key)) state.chats.set(key, { messages: [], loaded: false, unread: 0 });
+        return state.chats.get(key);
+      }
+
+      function send(payload) {
+        if (state.ws?.readyState === WebSocket.OPEN) state.ws.send(JSON.stringify(payload));
+      }
+
+      const storageKey = () => `forest-chat:${state.me}:groups`;
+      const saveJoined = () => localStorage.setItem(storageKey(), JSON.stringify([...state.joined]));
+
+      // ---------- connection ----------
+
+      function connect(name) {
+        clearTimeout(state.retry);
+        const proto = location.protocol === "https:" ? "wss" : "ws";
+        const ws = new WebSocket(`${proto}://${location.host}/ws?name=${encodeURIComponent(name)}`);
+        state.ws = ws;
+        let rejected = false;
+        setStatus("connecting…", "badge-ghost");
+
+        ws.onmessage = (event) => {
+          const msg = JSON.parse(event.data);
+          if (msg.type === "error" && !state.me) {
+            rejected = true;
+            showLogin(msg.message);
+            return;
+          }
+          handlers[msg.type]?.(msg);
+        };
+
+        ws.onclose = () => {
+          if (state.ws !== ws) return;
+          if (rejected || !state.me) return;
+          setStatus("offline", "badge-error");
+          state.retry = setTimeout(() => connect(state.me), 2000);
+        };
+      }
+
+      function setStatus(text, cls) {
+        const el = $("status");
+        el.textContent = text;
+        el.className = `badge badge-sm ${cls}`;
+      }
+
+      const handlers = {
+        welcome(msg) {
+          const firstTime = state.me !== msg.me;
+          state.me = msg.me;
+          localStorage.setItem("forest-chat:name", msg.me);
+          state.users = msg.users;
+          state.rooms = msg.rooms;
+          setStatus("online", "badge-success");
+
+          if (firstTime) {
+            const saved = JSON.parse(localStorage.getItem(storageKey()) || '["general"]');
+            state.joined = new Set(saved);
+          }
+          // Everything may have changed while we were away: refetch lazily.
+          for (const chat of state.chats.values()) chat.loaded = false;
+          state.typing.clear();
+          for (const room of state.joined) send({ type: "join", room });
+
+          showApp();
+          if (state.active) openChat(state.active);
+          else if (state.joined.has("general")) openChat({ kind: "room", id: "general" });
+          render();
+        },
+
+        presence(msg) {
+          state.users = msg.users;
+          render();
+        },
+
+        rooms(msg) {
+          state.rooms = msg.rooms;
+          renderRooms();
+        },
+
+        joined(msg) {
+          const isNew = !state.joined.has(msg.room);
+          state.joined.add(msg.room);
+          saveJoined();
+          if (isNew) openChat({ kind: "room", id: msg.room });
+          else if (sameChat(state.active, { kind: "room", id: msg.room })) requestHistory(state.active);
+          renderRooms();
+        },
+
+        history(msg) {
+          const chat = chatState(msg.chat);
+          const seen = new Set(msg.messages.map((m) => `${m.ts}|${m.from}|${m.text}`));
+          const live = chat.messages.filter((m) => !seen.has(`${m.ts}|${m.from}|${m.text}`));
+          chat.messages = [...msg.messages, ...live];
+          chat.loaded = true;
+          if (sameChat(state.active, msg.chat)) renderMessages();
+        },
+
+        message(msg) {
+          const chat = chatState(msg.chat);
+          chat.messages.push({ from: msg.from, text: msg.text, ts: msg.ts });
+          if (msg.chat.kind === "dm") state.dmPeers.add(msg.chat.id);
+          clearTyping(msg.chat, msg.from);
+
+          if (sameChat(state.active, msg.chat)) {
+            appendMessage(chat.messages.at(-1), chat.messages.at(-2));
+          } else if (msg.from !== state.me) {
+            chat.unread += 1;
+          }
+          renderSidebar();
+        },
+
+        typing(msg) {
+          if (msg.active) setTyping(msg.chat, msg.from);
+          else clearTyping(msg.chat, msg.from);
+        },
+
+        error(msg) {
+          toast(msg.message);
+        },
+      };
+
+      // ---------- actions ----------
+
+      function openChat(chat) {
+        stopTyping();
+        state.active = chat;
+        const cs = chatState(chat);
+        cs.unread = 0;
+        if (chat.kind === "dm") state.dmPeers.add(chat.id);
+        if (!cs.loaded) requestHistory(chat);
+
+        $("composer-input").disabled = false;
+        $("composer-send").disabled = false;
+        $("composer-input").placeholder =
+          chat.kind === "room" ? `Message #${chat.id}` : `Message @${chat.id}`;
+        $("drawer").checked = false;
+        $("composer-input").focus();
+        render();
+      }
+
+      function requestHistory(chat) {
+        send({ type: "history", chat });
+      }
+
+      function leaveRoom(room) {
+        send({ type: "leave", room });
+        state.joined.delete(room);
+        saveJoined();
+        if (sameChat(state.active, { kind: "room", id: room })) {
+          state.active = null;
+          $("composer-input").disabled = true;
+          $("composer-send").disabled = true;
+        }
+        render();
+      }
+
+      function startTyping() {
+        if (!state.active) return;
+        if (!sameChat(state.typingSentFor, state.active)) {
+          stopTyping();
+          state.typingSentFor = state.active;
+          send({ type: "typing", chat: state.active, active: true });
+        }
+        clearTimeout(state.typingTimer);
+        state.typingTimer = setTimeout(stopTyping, TYPING_IDLE_MS);
+      }
+
+      function stopTyping() {
+        clearTimeout(state.typingTimer);
+        if (state.typingSentFor) {
+          send({ type: "typing", chat: state.typingSentFor, active: false });
+          state.typingSentFor = null;
+        }
+      }
+
+      function setTyping(chat, from) {
+        const key = chatKey(chat);
+        if (!state.typing.has(key)) state.typing.set(key, new Map());
+        const people = state.typing.get(key);
+        clearTimeout(people.get(from));
+        people.set(from, setTimeout(() => clearTyping(chat, from), TYPING_EXPIRE_MS));
+        renderTyping();
+        renderSidebar();
+      }
+
+      function clearTyping(chat, from) {
+        const people = state.typing.get(chatKey(chat));
+        if (!people?.has(from)) return;
+        clearTimeout(people.get(from));
+        people.delete(from);
+        renderTyping();
+        renderSidebar();
+      }
+
+      const typersOf = (chat) => [...(state.typing.get(chatKey(chat))?.keys() ?? [])];
+
+      // ---------- rendering ----------
+
+      function render() {
+        renderSidebar();
+        renderHeader();
+        renderMessages();
+        renderTyping();
+      }
+
+      function renderSidebar() {
+        renderMe();
+        renderRooms();
+        renderPeople();
+      }
+
+      function renderMe() {
+        $("me").replaceChildren(
+          avatar(avatarUrl(state.me), "w-12", true),
+          h("div", { class: "min-w-0" },
+            h("div", { class: "font-semibold truncate" }, state.me),
+            h("div", { class: "text-xs text-base-content/60" }, `${state.users.length} online`)),
+        );
+      }
+
+      function sidebarItem({ chat, img, online, title, subtitle, action }) {
+        const cs = state.chats.get(chatKey(chat));
+        const typers = typersOf(chat);
+        const active = sameChat(state.active, chat);
+        return h("li", {},
+          h("a", { class: `flex items-center gap-3 ${active ? "menu-active" : ""}`, onclick: () => openChat(chat) },
+            avatar(img, "w-9", online),
+            h("div", { class: "min-w-0 flex-1" },
+              h("div", { class: "truncate font-medium" }, title),
+              typers.length
+                ? h("div", { class: "text-xs text-success flex items-center gap-1" },
+                    h("span", { class: "loading loading-dots loading-xs" }), "typing")
+                : subtitle && h("div", { class: "text-xs text-base-content/60 truncate" }, subtitle)),
+            cs?.unread ? h("span", { class: "badge badge-primary badge-sm" }, cs.unread) : null,
+            action),
+        );
+      }
+
+      function lastLine(chat) {
+        const last = state.chats.get(chatKey(chat))?.messages.at(-1);
+        if (!last) return null;
+        return `${last.from === state.me ? "You" : last.from}: ${last.text}`;
+      }
+
+      function renderRooms() {
+        const joined = [...state.joined].sort();
+        const others = state.rooms.filter((r) => !state.joined.has(r));
+
+        const items = joined.map((room) => {
+          const chat = { kind: "room", id: room };
+          return sidebarItem({
+            chat,
+            img: roomAvatarUrl(room),
+            title: `# ${room}`,
+            subtitle: lastLine(chat),
+            action: h("button", {
+              class: "btn btn-ghost btn-xs",
+              title: "Leave group",
+              onclick: (e) => { e.stopPropagation(); leaveRoom(room); },
+            }, "✕"),
+          });
+        });
+
+        for (const room of others) {
+          items.push(h("li", {},
+            h("a", { class: "flex items-center gap-3 opacity-70", onclick: () => send({ type: "join", room }) },
+              avatar(roomAvatarUrl(room), "w-9"),
+              h("span", { class: "flex-1 truncate" }, `# ${room}`),
+              h("span", { class: "badge badge-outline badge-sm" }, "join"))));
+        }
+
+        $("rooms").replaceChildren(...items);
+      }
+
+      function renderPeople() {
+        const online = new Set(state.users);
+        const peers = new Set([...state.users, ...state.dmPeers]);
+        peers.delete(state.me);
+        const sorted = [...peers].sort((a, b) => (online.has(b) - online.has(a)) || a.localeCompare(b));
+
+        const items = sorted.map((name) => {
+          const chat = { kind: "dm", id: name };
+          return sidebarItem({
+            chat,
+            img: avatarUrl(name),
+            online: online.has(name),
+            title: name,
+            subtitle: lastLine(chat) ?? (online.has(name) ? "online" : "offline"),
+          });
+        });
+
+        $("people").replaceChildren(
+          ...(items.length ? items : [h("li", { class: "px-4 py-2 text-sm text-base-content/50" }, "Nobody else is here yet.")]),
+        );
+      }
+
+      function renderHeader() {
+        const chat = state.active;
+        if (!chat) {
+          $("chat-head").replaceChildren(h("span", { class: "text-base-content/60" }, "No chat selected"));
+          return;
+        }
+        const isRoom = chat.kind === "room";
+        const online = state.users.includes(chat.id);
+        $("chat-head").replaceChildren(
+          avatar(isRoom ? roomAvatarUrl(chat.id) : avatarUrl(chat.id), "w-10", isRoom ? null : online),
+          h("div", { class: "min-w-0" },
+            h("div", { class: "font-semibold truncate" }, isRoom ? `# ${chat.id}` : chat.id),
+            h("div", { class: "text-xs text-base-content/60" },
+              isRoom ? "Group chat" : online ? "Online" : "Offline — they'll see it later")),
+        );
+      }
+
+      function renderMessages() {
+        const box = $("messages");
+        const chat = state.active;
+        if (!chat) {
+          box.replaceChildren(emptyState("Pick a group or a person on the left."));
+          return;
+        }
+        const cs = chatState(chat);
+        if (!cs.loaded && cs.messages.length === 0) {
+          box.replaceChildren(h("div", { class: "flex h-full items-center justify-center" },
+            h("span", { class: "loading loading-spinner loading-lg text-primary" })));
+          return;
+        }
+        if (cs.messages.length === 0) {
+          box.replaceChildren(emptyState("No messages yet. Say hi 👋"));
+          return;
+        }
+        box.replaceChildren(...cs.messages.flatMap((m, i) => messageNodes(m, cs.messages[i - 1])));
+        box.scrollTop = box.scrollHeight;
+      }
+
+      function emptyState(text) {
+        return h("div", { class: "flex h-full items-center justify-center text-base-content/50" }, text);
+      }
+
+      function appendMessage(message, previous) {
+        const box = $("messages");
+        if (!previous) box.replaceChildren();
+        const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 120;
+        box.append(...messageNodes(message, previous));
+        if (nearBottom || message.from === state.me) box.scrollTop = box.scrollHeight;
+      }
+
+      function messageNodes(m, prev) {
+        const nodes = [];
+        const date = new Date(m.ts);
+        if (!prev || new Date(prev.ts).toDateString() !== date.toDateString()) {
+          nodes.push(h("div", { class: "divider text-xs text-base-content/50" }, dayFmt.format(date)));
+        }
+
+        const mine = m.from === state.me;
+        // Group consecutive messages from the same person within 5 minutes.
+        const grouped = prev && prev.from === m.from && m.ts - prev.ts < 5 * 60 * 1000;
+
+        nodes.push(h("div", { class: `chat ${mine ? "chat-end" : "chat-start"}` },
+          h("div", { class: "chat-image avatar" },
+            h("div", { class: `w-10 rounded-full bg-base-300 ${grouped ? "invisible" : ""}` },
+              h("img", { src: avatarUrl(m.from), alt: m.from }))),
+          grouped ? null : h("div", { class: "chat-header" },
+            mine ? "You" : m.from,
+            h("time", { class: "text-xs opacity-50 ml-1" }, timeFmt.format(date))),
+          h("div", {
+            class: `chat-bubble max-w-[min(75%,36rem)] whitespace-pre-wrap break-words ${mine ? "chat-bubble-primary" : "chat-bubble-incoming"}`,
+          }, m.text),
+        ));
+        return nodes;
+      }
+
+      function renderTyping() {
+        const el = $("typing");
+        const typers = state.active ? typersOf(state.active) : [];
+        if (!typers.length) {
+          el.replaceChildren();
+          return;
+        }
+        const who =
+          typers.length === 1 ? `${typers[0]} is typing`
+          : typers.length === 2 ? `${typers[0]} and ${typers[1]} are typing`
+          : `${typers.length} people are typing`;
+        el.replaceChildren(
+          h("div", { class: "avatar-group -space-x-3" },
+            ...typers.slice(0, 3).map((n) => avatar(avatarUrl(n), "w-5"))),
+          h("span", {}, who),
+          h("span", { class: "loading loading-dots loading-xs" }),
+        );
+      }
+
+      // ---------- screens ----------
+
+      function showLogin(error) {
+        state.me = null;
+        state.ws?.close();
+        state.ws = null;
+        $("app").classList.add("hidden");
+        $("login").classList.remove("hidden");
+        $("login-error").textContent = error ?? "";
+        $("login-error").classList.toggle("hidden", !error);
+        updateLoginAvatar();
+        $("login-name").focus();
+      }
+
+      function showApp() {
+        $("login").classList.add("hidden");
+        $("app").classList.remove("hidden");
+      }
+
+      function updateLoginAvatar() {
+        $("login-avatar").src = avatarUrl($("login-name").value.trim() || "forest");
+      }
+
+      // ---------- events ----------
+
+      $("login-name").addEventListener("input", updateLoginAvatar);
+
+      $("login-form").addEventListener("submit", (e) => {
+        e.preventDefault();
+        const name = $("login-name").value.trim();
+        if (!NAME_RE.test(name)) return showLogin("Use 1–24 letters, numbers, - or _.");
+        state.active = null;
+        state.chats.clear();
+        state.dmPeers.clear();
+        state.pendingName = name;
+        connect(name);
+      });
+
+      $("composer").addEventListener("submit", (e) => {
+        e.preventDefault();
+        const input = $("composer-input");
+        const text = input.value.trim();
+        if (!text || !state.active) return;
+        stopTyping();
+        send({ type: "send", chat: state.active, text });
+        input.value = "";
+      });
+
+      $("composer-input").addEventListener("input", (e) => {
+        if (e.target.value.trim()) startTyping();
+        else stopTyping();
+      });
+
+      $("composer-input").addEventListener("blur", stopTyping);
+
+      $("room-form").addEventListener("submit", (e) => {
+        e.preventDefault();
+        const room = $("room-input").value.trim();
+        if (!ROOM_RE.test(room)) return toast("Group names: 1–32 letters, numbers, - or _.");
+        if (state.joined.has(room)) openChat({ kind: "room", id: room });
+        else send({ type: "join", room });
+        $("room-input").value = "";
+      });
+
+      $("logout").addEventListener("click", () => {
+        localStorage.removeItem("forest-chat:name");
+        showLogin();
+      });
+
+      // ---------- boot ----------
+
+      const savedName = localStorage.getItem("forest-chat:name");
+      if (savedName && NAME_RE.test(savedName)) {
+        $("login-name").value = savedName;
+        connect(savedName);
+      }
+      updateLoginAvatar();
+    </script>
+  </body>
+</html>
