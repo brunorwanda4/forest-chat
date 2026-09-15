@@ -3,8 +3,14 @@ name = "forest-chat"
 version = "0.1.0"
 edition = "2024"
 
+[workspace]
+members = ["src-tauri"]
+resolver = "3"
+
+[profile.dev]
+debug = 0
+
 [dependencies]
-actix-files = "0.6"
 actix-web = "4"
 actix-ws = "0.3"
 bytestring = "1"

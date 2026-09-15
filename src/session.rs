@@ -51,7 +51,12 @@ pub async fn run(
         rooms: hub.rooms(),
     };
     if session.text(welcome.frame()).await.is_ok() {
-        hub.broadcast(&ServerMsg::Presence { users: hub.online() }.frame());
+        hub.broadcast(
+            &ServerMsg::Presence {
+                users: hub.online(),
+            }
+            .frame(),
+        );
 
         let mut stream = stream
             .max_frame_size(MAX_FRAME_SIZE)
@@ -104,7 +109,12 @@ pub async fn run(
     }
 
     hub.disconnect(&name);
-    hub.broadcast(&ServerMsg::Presence { users: hub.online() }.frame());
+    hub.broadcast(
+        &ServerMsg::Presence {
+            users: hub.online(),
+        }
+        .frame(),
+    );
     log::info!("{name} disconnected");
 }
 
@@ -133,7 +143,9 @@ async fn handle(
                 store.save_room(&room);
                 hub.broadcast(&ServerMsg::Rooms { rooms: hub.rooms() }.frame());
             }
-            session.text(ServerMsg::Joined { room: &room }.frame()).await?;
+            session
+                .text(ServerMsg::Joined { room: &room }.frame())
+                .await?;
         }
 
         ClientMsg::Leave { room } => hub.leave(&room, name),

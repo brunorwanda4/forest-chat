@@ -1,0 +1,31 @@
+[package]
+name = "forest-chat-desktop"
+version = "0.1.0"
+description = "Forest Chat desktop application"
+authors = ["brunorwanda4"]
+edition = "2024"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+actix-web = "4"
+actix-ws = "0.3"
+bytestring = "1"
+cpal = "0.15"
+forest-chat = { path = ".." }
+futures-util = "0.3"
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
+local-ip-address = "0.6"
+log = "0.4"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tauri = { version = "2", features = [] }
+tokio = { version = "1", features = ["full"] }
+tokio-tungstenite = "0.26"
+uuid = { version = "1", features = ["v4", "serde"] }
+webrtc = "0.8"
+xcap = "0.9"
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]

@@ -98,7 +98,9 @@ impl Store {
 
     pub async fn rooms(&self) -> turso::Result<Vec<String>> {
         let conn = self.db.connect()?;
-        let mut rows = conn.query("SELECT name FROM rooms ORDER BY name", ()).await?;
+        let mut rows = conn
+            .query("SELECT name FROM rooms ORDER BY name", ())
+            .await?;
 
         let mut rooms = Vec::new();
         while let Some(row) = rows.next().await? {
@@ -138,7 +140,14 @@ impl Store {
         });
     }
 
-    pub fn save_message(&self, kind: &'static str, target: String, sender: &str, body: &str, ts: i64) {
+    pub fn save_message(
+        &self,
+        kind: &'static str,
+        target: String,
+        sender: &str,
+        body: &str,
+        ts: i64,
+    ) {
         self.enqueue(Write::Message {
             kind,
             target,
@@ -174,10 +183,12 @@ async fn write_batch(conn: &Connection, batch: &[Write]) -> turso::Result<()> {
     for write in batch {
         match write {
             Write::Room { name, ts } => {
-                conn.prepare_cached("INSERT OR IGNORE INTO rooms (name, created_ts) VALUES (?1, ?2)")
-                    .await?
-                    .execute((name.as_str(), *ts))
-                    .await?;
+                conn.prepare_cached(
+                    "INSERT OR IGNORE INTO rooms (name, created_ts) VALUES (?1, ?2)",
+                )
+                .await?
+                .execute((name.as_str(), *ts))
+                .await?;
             }
             Write::Message {
                 kind,
@@ -197,7 +208,11 @@ async fn write_batch(conn: &Connection, batch: &[Write]) -> turso::Result<()> {
     }
 
     conn.execute("COMMIT", ()).await?;
-    log::debug!("persisted {} writes in {:?}", batch.len(), started.elapsed());
+    log::debug!(
+        "persisted {} writes in {:?}",
+        batch.len(),
+        started.elapsed()
+    );
     Ok(())
 }
 

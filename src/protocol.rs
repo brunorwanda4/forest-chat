@@ -77,7 +77,8 @@ impl ServerMsg<'_> {
 fn valid_ident(s: &str, max_len: usize) -> bool {
     !s.is_empty()
         && s.chars().count() <= max_len
-        && s.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-')
+        && s.chars()
+            .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
 }
 
 pub fn valid_name(name: &str) -> bool {
