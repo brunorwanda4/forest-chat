@@ -11,6 +11,8 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 actix-web = "4"
 actix-ws = "0.3"
+base64 = "0.22"
+bytes = "1"
 bytestring = "1"
 cpal = "0.15"
 forest-chat = { path = ".." }

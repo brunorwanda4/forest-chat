@@ -4,8 +4,21 @@ use std::{env, fs, net::TcpListener, sync::mpsc, thread, time::Duration};
 
 use tauri::{Manager, WebviewUrl, webview::WebviewWindowBuilder};
 
+mod lan_meeting;
+
 fn main() {
     tauri::Builder::default()
+        .manage(lan_meeting::commands::LanMeetingManager::default())
+        .invoke_handler(tauri::generate_handler![
+            lan_meeting::commands::get_lan_ip_info,
+            lan_meeting::commands::create_lan_meeting,
+            lan_meeting::commands::join_lan_meeting,
+            lan_meeting::commands::leave_lan_meeting,
+            lan_meeting::commands::toggle_meeting_mic,
+            lan_meeting::commands::toggle_meeting_screen_share,
+            lan_meeting::commands::send_meeting_chat,
+            lan_meeting::commands::get_meeting_status,
+        ])
         .setup(|app| {
             let url = match env::var("FOREST_CHAT_SERVER_URL") {
                 Ok(server_url) => server_url.parse()?,

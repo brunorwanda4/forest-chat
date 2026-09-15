@@ -55,33 +55,225 @@
     <div id="app" class="drawer lg:drawer-open hidden h-full">
       <input id="drawer" type="checkbox" class="drawer-toggle" />
 
-      <!-- Chat pane -->
-      <div class="drawer-content flex h-full min-w-0 flex-col">
-        <header class="navbar bg-base-100 border-base-300 gap-2 border-b px-3">
-          <label for="drawer" class="btn btn-ghost btn-square lg:hidden" aria-label="Open menu">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
-            </svg>
-          </label>
-          <div id="chat-head" class="flex min-w-0 flex-1 items-center gap-3"></div>
-          <span id="status" class="badge badge-ghost badge-sm">connecting…</span>
-        </header>
+      <div class="drawer-content flex h-full min-w-0 flex-col overflow-hidden">
+        <!-- Chat pane -->
+        <div id="chat-pane" class="flex h-full min-w-0 flex-col">
+          <header class="navbar bg-base-100 border-base-300 gap-2 border-b px-3">
+            <label for="drawer" class="btn btn-ghost btn-square lg:hidden" aria-label="Open menu">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+            </label>
+            <div id="chat-head" class="flex min-w-0 flex-1 items-center gap-3"></div>
+            <span id="status" class="badge badge-ghost badge-sm">connecting…</span>
+          </header>
 
-        <section id="messages" class="flex-1 space-y-1 overflow-y-auto p-4"></section>
+          <section id="messages" class="flex-1 space-y-1 overflow-y-auto p-4"></section>
 
-        <div id="typing" class="text-base-content/70 flex h-6 items-center gap-2 px-5 text-sm"></div>
+          <div id="typing" class="text-base-content/70 flex h-6 items-center gap-2 px-5 text-sm"></div>
 
-        <form id="composer" class="bg-base-100 border-base-300 flex gap-2 border-t p-3">
-          <input
-            id="composer-input"
-            class="input input-bordered flex-1"
-            placeholder="Pick a chat to start"
-            maxlength="2000"
-            autocomplete="off"
-            disabled
-          />
-          <button id="composer-send" class="btn btn-primary" disabled>Send</button>
-        </form>
+          <form id="composer" class="bg-base-100 border-base-300 flex gap-2 border-t p-3">
+            <input
+              id="composer-input"
+              class="input input-bordered flex-1"
+              placeholder="Pick a chat to start"
+              maxlength="2000"
+              autocomplete="off"
+              disabled
+            />
+            <button id="composer-send" class="btn btn-primary" disabled>Send</button>
+          </form>
+        </div>
+
+        <!-- Meeting pane -->
+        <div id="meeting-pane" class="hidden flex h-full min-w-0 flex-col overflow-hidden bg-base-300">
+          <!-- Meeting Lobby (Create/Join) -->
+          <div id="meeting-lobby" class="flex-1 overflow-y-auto p-4 md:p-8 flex items-center justify-center">
+            <div class="card bg-base-100 shadow-xl max-w-xl w-full border border-base-300">
+              <div class="card-body gap-4">
+                <div class="flex items-center gap-3">
+                  <div class="p-3 bg-secondary/10 text-secondary rounded-2xl">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h2 class="card-title text-2xl font-bold">LAN Real-Time Meeting</h2>
+                    <p class="text-xs text-base-content/70">Pure peer-to-peer real-time streaming, audio & chat across your local network</p>
+                  </div>
+                </div>
+
+                <!-- Tabs -->
+                <div class="tabs tabs-boxed w-full grid grid-cols-2 mt-2">
+                  <button type="button" id="tab-host" class="tab tab-active font-semibold">Host Room</button>
+                  <button type="button" id="tab-join" class="tab font-semibold">Join Room</button>
+                </div>
+
+                <!-- Host Form -->
+                <form id="form-host" class="space-y-4">
+                  <div class="form-control">
+                    <label class="label"><span class="label-text font-medium">Host Display Name</span></label>
+                    <input id="host-name" type="text" placeholder="Host name" class="input input-bordered w-full" required />
+                  </div>
+
+                  <div class="p-3 rounded-xl bg-base-200 border border-base-300 space-y-2">
+                    <div class="flex justify-between items-center">
+                      <span class="text-xs font-semibold uppercase tracking-wide text-base-content/70">Detected Local LAN IP</span>
+                      <span id="host-detected-ip" class="badge badge-primary badge-sm font-mono">detecting...</span>
+                    </div>
+                    <p class="text-xs text-base-content/60">
+                      Peers on your Wi-Fi/LAN can connect using this IP address.
+                    </p>
+                  </div>
+
+                  <div class="form-control">
+                    <label class="label"><span class="label-text font-medium">Signaling Port (Default: 8080)</span></label>
+                    <input id="host-port" type="number" value="8080" placeholder="8080" class="input input-bordered w-full" />
+                  </div>
+
+                  <button type="submit" id="btn-start-host" class="btn btn-primary w-full gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                    Create Room & Start Meeting
+                  </button>
+                </form>
+
+                <!-- Join Form -->
+                <form id="form-join" class="space-y-4 hidden">
+                  <div class="form-control">
+                    <label class="label"><span class="label-text font-medium">Your Display Name</span></label>
+                    <input id="join-name" type="text" placeholder="Your name" class="input input-bordered w-full" required />
+                  </div>
+
+                  <div class="form-control">
+                    <label class="label">
+                      <span class="label-text font-medium">Host IP Address or Full Join Address</span>
+                    </label>
+                    <input id="join-host-addr" type="text" placeholder="e.g. 192.168.1.5:8080" class="input input-bordered w-full" required />
+                    <label class="label">
+                      <span class="label-text-alt text-base-content/60">Enter host LAN IP or full ws:// address</span>
+                    </label>
+                  </div>
+
+                  <div class="form-control">
+                    <label class="label"><span class="label-text font-medium">Room Code</span></label>
+                    <input id="join-room-code" type="text" placeholder="e.g. a1b2c3" maxlength="32" class="input input-bordered w-full font-mono uppercase" required />
+                  </div>
+
+                  <button type="submit" id="btn-start-join" class="btn btn-secondary w-full gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
+                    </svg>
+                    Connect & Join Meeting
+                  </button>
+                </form>
+              </div>
+            </div>
+          </div>
+
+          <!-- Active Meeting Room -->
+          <div id="meeting-active" class="hidden flex-1 flex flex-col min-h-0">
+            <!-- Header -->
+            <header class="navbar bg-base-100 border-b border-base-300 px-4 py-2 gap-3 justify-between flex-wrap">
+              <div class="flex items-center gap-3">
+                <span class="badge badge-secondary badge-lg font-mono font-bold" id="meeting-code-badge">ROOM: ------</span>
+                <span class="badge badge-outline text-xs font-mono" id="meeting-ip-badge">LAN: ...</span>
+                <span class="badge badge-success badge-sm gap-1" id="meeting-peer-count">
+                  <span class="h-2 w-2 rounded-full bg-success-content animate-pulse"></span>
+                  1 peer
+                </span>
+              </div>
+              <div class="flex items-center gap-2">
+                <button id="btn-copy-join" class="btn btn-sm btn-outline gap-1">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                  </svg>
+                  Copy Join Address
+                </button>
+              </div>
+            </header>
+
+            <!-- Main Stage & Panel Split -->
+            <div class="flex-1 flex flex-col lg:flex-row min-h-0 overflow-hidden">
+              <!-- Left: Video / Screen Share Stage -->
+              <div class="flex-1 bg-black/50 flex flex-col items-center justify-center p-3 relative min-h-[280px]">
+                <div id="presenter-pill" class="hidden absolute top-5 left-5 z-10 badge badge-neutral/80 backdrop-blur text-xs gap-2 py-3 px-4 shadow">
+                  <span class="h-2 w-2 rounded-full bg-error animate-ping"></span>
+                  <span id="presenter-name">Presenting screen</span>
+                </div>
+
+                <!-- Hardware accelerated canvas for smooth frame rendering -->
+                <canvas id="meeting-screen-canvas" class="max-w-full max-h-full object-contain rounded-xl shadow-2xl hidden"></canvas>
+
+                <!-- Placeholder when not sharing -->
+                <div id="screen-placeholder" class="flex flex-col items-center justify-center text-center p-6 max-w-sm">
+                  <div class="p-4 bg-base-100/50 rounded-full mb-3 text-base-content/50">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                    </svg>
+                  </div>
+                  <h3 class="font-bold text-lg text-base-content/80">No Screen Shared</h3>
+                  <p class="text-xs text-base-content/60 mt-1">Click "Share Screen" below to stream your monitor to everyone in the room over WebRTC.</p>
+                </div>
+              </div>
+
+              <!-- Right: Sidebar (Participants & WebRTC Chat) -->
+              <div class="w-full lg:w-80 border-t lg:border-t-0 lg:border-l border-base-300 bg-base-100 flex flex-col h-72 lg:h-full">
+                <!-- Panel Tabs -->
+                <div class="tabs tabs-bordered grid grid-cols-2 border-b border-base-300">
+                  <button type="button" id="side-tab-participants" class="tab tab-active text-xs font-semibold py-2">Participants</button>
+                  <button type="button" id="side-tab-chat" class="tab text-xs font-semibold py-2">Room Chat</button>
+                </div>
+
+                <!-- Participants List -->
+                <div id="panel-participants" class="flex-1 overflow-y-auto p-3 space-y-2">
+                  <div id="meeting-participants-list" class="space-y-2"></div>
+                </div>
+
+                <!-- Chat Panel -->
+                <div id="panel-chat" class="hidden flex-1 flex flex-col min-h-0">
+                  <div id="meeting-chat-messages" class="flex-1 overflow-y-auto p-3 space-y-2"></div>
+                  <form id="meeting-chat-form" class="p-2 border-t border-base-300 flex gap-2 bg-base-200">
+                    <input id="meeting-chat-input" type="text" placeholder="Message room (P2P)..." class="input input-sm input-bordered flex-1" autocomplete="off" />
+                    <button class="btn btn-sm btn-primary">Send</button>
+                  </form>
+                </div>
+              </div>
+            </div>
+
+            <!-- Bottom Controls Bar -->
+            <footer class="bg-base-100 border-t border-base-300 px-4 py-3 flex items-center justify-center gap-3">
+              <!-- Mic Button -->
+              <button id="btn-meeting-mic" class="btn btn-sm md:btn-md gap-2 btn-ghost border border-base-300">
+                <svg id="icon-mic-on" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                </svg>
+                <svg id="icon-mic-off" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-error hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
+                </svg>
+                <span id="label-meeting-mic">Mute</span>
+              </button>
+
+              <!-- Screen Share Button -->
+              <button id="btn-meeting-share" class="btn btn-sm md:btn-md gap-2 btn-ghost border border-base-300">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-secondary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                </svg>
+                <span id="label-meeting-share">Share Screen</span>
+              </button>
+
+              <!-- Leave Meeting Button -->
+              <button id="btn-meeting-leave" class="btn btn-sm md:btn-md btn-error gap-2 text-white">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                </svg>
+                Leave Room
+              </button>
+            </footer>
+          </div>
+        </div>
       </div>
 
       <!-- Sidebar -->
@@ -89,6 +281,19 @@
         <label for="drawer" class="drawer-overlay" aria-label="Close menu"></label>
         <div class="bg-base-200 flex h-full w-80 flex-col">
           <div id="me" class="border-base-300 flex items-center gap-3 border-b p-4"></div>
+
+          <!-- Mode Switcher -->
+          <div class="px-3 py-2 border-b border-base-300">
+            <div class="join w-full grid grid-cols-2">
+              <button id="nav-chat-btn" class="join-item btn btn-sm btn-primary">Text Chat</button>
+              <button id="nav-meeting-btn" class="join-item btn btn-sm btn-ghost gap-1">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-secondary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                </svg>
+                LAN Meeting
+              </button>
+            </div>
+          </div>
 
           <div class="flex-1 overflow-y-auto p-2">
             <h2 class="menu-title flex items-center justify-between">
@@ -658,6 +863,473 @@
         connect(savedName);
       }
       updateLoginAvatar();
+
+      // ==========================================
+      // ---------- LAN MEETING MODULE ----------
+      // ==========================================
+
+      const meetingState = {
+        inMeeting: false,
+        isHost: false,
+        roomId: null,
+        peerId: null,
+        localIp: null,
+        joinAddress: null,
+        isMuted: false,
+        isSharingScreen: false,
+        participants: [],
+        presenterPeerId: null,
+        speakingPeers: new Set(),
+        mutedPeers: new Set(),
+      };
+
+      async function tauriInvoke(cmd, args = {}) {
+        if (window.__TAURI__?.core?.invoke) {
+          return await window.__TAURI__.core.invoke(cmd, args);
+        }
+        if (window.__TAURI_INTERNALS__?.invoke) {
+          return await window.__TAURI_INTERNALS__.invoke(cmd, args);
+        }
+        throw new Error("Tauri IPC is only available in the Forest Chat desktop app.");
+      }
+
+      async function onTauriEvent(eventName, handler) {
+        if (window.__TAURI__?.event?.listen) {
+          return await window.__TAURI__.event.listen(eventName, (e) => handler(e.payload));
+        }
+        if (window.__TAURI_INTERNALS__?.invoke) {
+          const handlerId = window.__TAURI_INTERNALS__.transformCallback((event) => {
+            handler(event.payload);
+          });
+          try {
+            await window.__TAURI_INTERNALS__.invoke("plugin:event|listen", {
+              event: eventName,
+              target: { kind: "Any" },
+              handler: handlerId,
+            });
+            return () => {
+              window.__TAURI_INTERNALS__.invoke("plugin:event|unlisten", {
+                event: eventName,
+                eventId: handlerId,
+              });
+            };
+          } catch (e) {
+            console.warn("Direct event listen fallback error:", e);
+          }
+        }
+      }
+
+      // Mode navigation: Chat vs LAN Meeting
+      function switchAppMode(mode) {
+        if (mode === "chat") {
+          $("chat-pane").classList.remove("hidden");
+          $("meeting-pane").classList.add("hidden");
+          $("nav-chat-btn").className = "join-item btn btn-sm btn-primary";
+          $("nav-meeting-btn").className = "join-item btn btn-sm btn-ghost gap-1";
+        } else {
+          $("chat-pane").classList.add("hidden");
+          $("meeting-pane").classList.remove("hidden");
+          $("nav-chat-btn").className = "join-item btn btn-sm btn-ghost";
+          $("nav-meeting-btn").className = "join-item btn btn-sm btn-primary gap-1";
+          loadLocalIpInfo();
+          if (state.me) {
+            if (!$("host-name").value) $("host-name").value = state.me;
+            if (!$("join-name").value) $("join-name").value = state.me;
+          }
+        }
+      }
+
+      $("nav-chat-btn").addEventListener("click", () => switchAppMode("chat"));
+      $("nav-meeting-btn").addEventListener("click", () => switchAppMode("meeting"));
+
+      // Lobby Tab Switching (Host vs Join)
+      $("tab-host").addEventListener("click", () => {
+        $("tab-host").className = "tab tab-active font-semibold";
+        $("tab-join").className = "tab font-semibold";
+        $("form-host").classList.remove("hidden");
+        $("form-join").classList.add("hidden");
+      });
+
+      $("tab-join").addEventListener("click", () => {
+        $("tab-join").className = "tab tab-active font-semibold";
+        $("tab-host").className = "tab font-semibold";
+        $("form-join").classList.remove("hidden");
+        $("form-host").classList.add("hidden");
+      });
+
+      // Side Panel Tabs (Participants vs Chat)
+      $("side-tab-participants").addEventListener("click", () => {
+        $("side-tab-participants").className = "tab tab-active text-xs font-semibold py-2";
+        $("side-tab-chat").className = "tab text-xs font-semibold py-2";
+        $("panel-participants").classList.remove("hidden");
+        $("panel-chat").classList.add("hidden");
+      });
+
+      $("side-tab-chat").addEventListener("click", () => {
+        $("side-tab-chat").className = "tab tab-active text-xs font-semibold py-2";
+        $("side-tab-participants").className = "tab text-xs font-semibold py-2";
+        $("panel-chat").classList.remove("hidden");
+        $("panel-participants").classList.add("hidden");
+        const msgContainer = $("meeting-chat-messages");
+        msgContainer.scrollTop = msgContainer.scrollHeight;
+      });
+
+      async function loadLocalIpInfo() {
+        try {
+          const info = await tauriInvoke("get_lan_ip_info");
+          if (info?.local_ip) {
+            $("host-detected-ip").textContent = info.local_ip;
+            meetingState.localIp = info.local_ip;
+          }
+        } catch (e) {
+          console.warn("Could not retrieve local IP:", e);
+          $("host-detected-ip").textContent = "127.0.0.1";
+        }
+      }
+
+      // Enter / Exit Meeting View
+      function enterMeetingView(roomInfo) {
+        meetingState.inMeeting = true;
+        meetingState.isHost = roomInfo.is_host;
+        meetingState.roomId = roomInfo.room_id;
+        meetingState.peerId = roomInfo.peer_id;
+        meetingState.localIp = roomInfo.local_ip;
+        meetingState.joinAddress = roomInfo.join_address;
+        meetingState.participants = roomInfo.participants || [];
+        meetingState.isMuted = false;
+        meetingState.isSharingScreen = false;
+        meetingState.presenterPeerId = null;
+        meetingState.speakingPeers.clear();
+        meetingState.mutedPeers.clear();
+
+        $("meeting-code-badge").textContent = `ROOM: #${roomInfo.room_id.toUpperCase()}`;
+        $("meeting-ip-badge").textContent = `LAN: ${roomInfo.local_ip}`;
+        updateParticipantsUI();
+
+        // Reset stage and controls
+        $("screen-placeholder").classList.remove("hidden");
+        $("meeting-screen-canvas").classList.add("hidden");
+        $("presenter-pill").classList.add("hidden");
+        $("meeting-chat-messages").replaceChildren();
+        updateMicButtonUI();
+        updateScreenShareButtonUI();
+
+        $("meeting-lobby").classList.add("hidden");
+        $("meeting-active").classList.remove("hidden");
+        toast(`Joined room #${roomInfo.room_id.toUpperCase()}`, "success");
+      }
+
+      function exitMeetingView() {
+        meetingState.inMeeting = false;
+        meetingState.roomId = null;
+        meetingState.peerId = null;
+        meetingState.participants = [];
+        meetingState.isSharingScreen = false;
+        meetingState.presenterPeerId = null;
+
+        $("meeting-active").classList.add("hidden");
+        $("meeting-lobby").classList.remove("hidden");
+      }
+
+      // Render Participants List
+      function updateParticipantsUI() {
+        const list = $("meeting-participants-list");
+        list.replaceChildren();
+
+        const count = meetingState.participants.length;
+        $("meeting-peer-count").textContent = `${count} ${count === 1 ? "peer" : "peers"}`;
+
+        for (const p of meetingState.participants) {
+          const isMe = p.peer_id === meetingState.peerId;
+          const isSpeaking = meetingState.speakingPeers.has(p.peer_id);
+          const isMuted = meetingState.mutedPeers.has(p.peer_id) || (isMe && meetingState.isMuted);
+          const isPresenting = meetingState.presenterPeerId === p.peer_id || (isMe && meetingState.isSharingScreen);
+
+          const item = h("div", { class: "flex items-center justify-between p-2 rounded-xl bg-base-200 border border-base-300 gap-2" },
+            h("div", { class: "flex items-center gap-2 min-w-0" },
+              h("div", { class: `avatar ${isSpeaking ? "ring ring-success ring-offset-base-100 ring-offset-1" : ""}` },
+                h("div", { class: "w-8 rounded-full bg-base-300" },
+                  h("img", { src: avatarUrl(p.name), alt: p.name }))),
+              h("div", { class: "min-w-0" },
+                h("div", { class: "flex items-center gap-1" },
+                  h("span", { class: "font-semibold text-xs truncate" }, p.name),
+                  isMe ? h("span", { class: "badge badge-xs badge-neutral" }, "You") : null,
+                  p.is_host ? h("span", { class: "badge badge-xs badge-primary" }, "Host") : null),
+                isPresenting ? h("span", { class: "badge badge-xs badge-warning text-[10px]" }, "Screen Sharing") : null)),
+            h("div", { class: "flex items-center gap-1 text-base-content/70" },
+              isMuted
+                ? h("span", { class: "text-error text-xs p-1 rounded-full bg-error/10" },
+                    h("svg", { xmlns: "http://www.w3.org/2000/svg", class: "h-4 w-4", fill: "none", viewBox: "0 0 24 24", stroke: "currentColor" },
+                      h("path", { "stroke-linecap": "round", "stroke-linejoin": "round", "stroke-width": "2", d: "M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" }),
+                      h("path", { "stroke-linecap": "round", "stroke-linejoin": "round", "stroke-width": "2", d: "M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" })))
+                : h("span", { class: `${isSpeaking ? "text-success" : "text-base-content/40"} text-xs p-1` },
+                    h("svg", { xmlns: "http://www.w3.org/2000/svg", class: "h-4 w-4", fill: "none", viewBox: "0 0 24 24", stroke: "currentColor" },
+                      h("path", { "stroke-linecap": "round", "stroke-linejoin": "round", "stroke-width": "2", d: "M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" })))));
+          list.append(item);
+        }
+      }
+
+      // Mic Button UI State
+      function updateMicButtonUI() {
+        const btn = $("btn-meeting-mic");
+        const iconOn = $("icon-mic-on");
+        const iconOff = $("icon-mic-off");
+        const label = $("label-meeting-mic");
+
+        if (meetingState.isMuted) {
+          iconOn.classList.add("hidden");
+          iconOff.classList.remove("hidden");
+          label.textContent = "Unmute";
+          btn.className = "btn btn-sm md:btn-md gap-2 btn-error text-error-content";
+        } else {
+          iconOn.classList.remove("hidden");
+          iconOff.classList.add("hidden");
+          label.textContent = "Mute";
+          btn.className = "btn btn-sm md:btn-md gap-2 btn-ghost border border-base-300";
+        }
+      }
+
+      // Screen Share Button UI State
+      function updateScreenShareButtonUI() {
+        const btn = $("btn-meeting-share");
+        const label = $("label-meeting-share");
+
+        if (meetingState.isSharingScreen) {
+          label.textContent = "Stop Share";
+          btn.className = "btn btn-sm md:btn-md gap-2 btn-warning text-warning-content";
+        } else {
+          label.textContent = "Share Screen";
+          btn.className = "btn btn-sm md:btn-md gap-2 btn-ghost border border-base-300";
+        }
+      }
+
+      // Form Submissions
+      $("form-host").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const name = $("host-name").value.trim();
+        const port = parseInt($("host-port").value, 10) || 8080;
+        if (!name) return toast("Please enter your display name");
+
+        $("btn-start-host").disabled = true;
+        try {
+          const res = await tauriInvoke("create_lan_meeting", { name, customPort: port });
+          enterMeetingView(res);
+        } catch (err) {
+          toast(`Host error: ${err}`, "error");
+        } finally {
+          $("btn-start-host").disabled = false;
+        }
+      });
+
+      $("form-join").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const name = $("join-name").value.trim();
+        const joinUrlOrIp = $("join-host-addr").value.trim();
+        const roomId = $("join-room-code").value.trim().toLowerCase();
+
+        if (!name || !joinUrlOrIp || !roomId) {
+          return toast("Please fill in all fields");
+        }
+
+        $("btn-start-join").disabled = true;
+        try {
+          const res = await tauriInvoke("join_lan_meeting", {
+            joinUrlOrIp,
+            roomId,
+            name,
+          });
+          enterMeetingView(res);
+        } catch (err) {
+          toast(`Join error: ${err}`, "error");
+        } finally {
+          $("btn-start-join").disabled = false;
+        }
+      });
+
+      // Meeting Controls Actions
+      $("btn-copy-join").addEventListener("click", () => {
+        if (meetingState.joinAddress) {
+          navigator.clipboard.writeText(meetingState.joinAddress).then(() => {
+            toast("Join link copied to clipboard!", "success");
+          }).catch(() => {
+            toast(meetingState.joinAddress, "info");
+          });
+        }
+      });
+
+      $("btn-meeting-mic").addEventListener("click", async () => {
+        try {
+          const newMuted = await tauriInvoke("toggle_meeting_mic");
+          meetingState.isMuted = newMuted;
+          updateMicButtonUI();
+          updateParticipantsUI();
+        } catch (err) {
+          toast(`Mic toggle error: ${err}`, "error");
+        }
+      });
+
+      $("btn-meeting-share").addEventListener("click", async () => {
+        try {
+          const newSharing = await tauriInvoke("toggle_meeting_screen_share");
+          meetingState.isSharingScreen = newSharing;
+          updateScreenShareButtonUI();
+          updateParticipantsUI();
+
+          if (!newSharing && meetingState.presenterPeerId === meetingState.peerId) {
+            $("screen-placeholder").classList.remove("hidden");
+            $("meeting-screen-canvas").classList.add("hidden");
+            $("presenter-pill").classList.add("hidden");
+          }
+        } catch (err) {
+          toast(`Screen share error: ${err}`, "error");
+        }
+      });
+
+      $("btn-meeting-leave").addEventListener("click", async () => {
+        try {
+          await tauriInvoke("leave_lan_meeting");
+          exitMeetingView();
+          toast("Left meeting room", "info");
+        } catch (err) {
+          toast(`Leave error: ${err}`, "error");
+          exitMeetingView();
+        }
+      });
+
+      $("meeting-chat-form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const input = $("meeting-chat-input");
+        const text = input.value.trim();
+        if (!text) return;
+        try {
+          await tauriInvoke("send_meeting_chat", { text });
+          input.value = "";
+        } catch (err) {
+          toast(`Chat error: ${err}`, "error");
+        }
+      });
+
+      // Canvas Screen Renderer
+      const screenCanvas = $("meeting-screen-canvas");
+      const screenCtx = screenCanvas?.getContext("2d");
+      const screenImg = new Image();
+
+      screenImg.onload = () => {
+        if (!screenCanvas || !screenCtx) return;
+        if (screenCanvas.width !== screenImg.width || screenCanvas.height !== screenImg.height) {
+          screenCanvas.width = screenImg.width;
+          screenCanvas.height = screenImg.height;
+        }
+        screenCtx.drawImage(screenImg, 0, 0);
+      };
+
+      // Tauri Meeting Event Handlers
+      function setupMeetingListeners() {
+        // Screen Frame Stream
+        onTauriEvent("meeting://screen-frame", (payload) => {
+          if (payload?.data_url) {
+            $("screen-placeholder").classList.add("hidden");
+            $("meeting-screen-canvas").classList.remove("hidden");
+            screenImg.src = payload.data_url;
+          }
+        });
+
+        // Screen Share Started
+        onTauriEvent("meeting://screen-share-started", (payload) => {
+          meetingState.presenterPeerId = payload?.peer_id;
+          const presenter = meetingState.participants.find((p) => p.peer_id === payload?.peer_id);
+          const name = presenter ? presenter.name : (payload?.name || "Someone");
+          $("presenter-name").textContent = `${name} is sharing screen`;
+          $("presenter-pill").classList.remove("hidden");
+          updateParticipantsUI();
+        });
+
+        // Screen Share Stopped
+        onTauriEvent("meeting://screen-share-stopped", (payload) => {
+          if (meetingState.presenterPeerId === payload?.peer_id) {
+            meetingState.presenterPeerId = null;
+            $("meeting-screen-canvas").classList.add("hidden");
+            $("screen-placeholder").classList.remove("hidden");
+            $("presenter-pill").classList.add("hidden");
+            updateParticipantsUI();
+          }
+        });
+
+        // Participants Update
+        onTauriEvent("meeting://participants-update", (participants) => {
+          meetingState.participants = participants || [];
+          updateParticipantsUI();
+        });
+
+        // Participant Left
+        onTauriEvent("meeting://participant-left", (peerId) => {
+          const leftPeer = meetingState.participants.find((p) => p.peer_id === peerId);
+          if (leftPeer) {
+            toast(`${leftPeer.name} left the room`, "info");
+          }
+          meetingState.participants = meetingState.participants.filter((p) => p.peer_id !== peerId);
+          if (meetingState.presenterPeerId === peerId) {
+            meetingState.presenterPeerId = null;
+            $("meeting-screen-canvas").classList.add("hidden");
+            $("screen-placeholder").classList.remove("hidden");
+            $("presenter-pill").classList.add("hidden");
+          }
+          updateParticipantsUI();
+        });
+
+        // In-Meeting Peer-to-Peer Chat Message
+        onTauriEvent("meeting://chat-message", (chat) => {
+          const isMine = chat.sender_id === meetingState.peerId;
+          const container = $("meeting-chat-messages");
+
+          const bubble = h("div", { class: `chat ${isMine ? "chat-end" : "chat-start"}` },
+            h("div", { class: "chat-image avatar" },
+              h("div", { class: "w-7 rounded-full bg-base-300" },
+                h("img", { src: avatarUrl(chat.sender_name), alt: chat.sender_name }))),
+            h("div", { class: "chat-header text-[11px] opacity-70 mb-0.5" },
+              isMine ? "You" : chat.sender_name,
+              h("time", { class: "text-[10px] opacity-50 ml-1" }, timeFmt.format(new Date(chat.timestamp)))),
+            h("div", {
+              class: `chat-bubble chat-bubble-sm text-xs break-words ${isMine ? "chat-bubble-primary" : "chat-bubble-incoming"}`,
+            }, chat.text));
+
+          container.append(bubble);
+          container.scrollTop = container.scrollHeight;
+        });
+
+        // Speaking Indicator Update
+        onTauriEvent("meeting://speaking", (payload) => {
+          if (payload?.is_speaking) {
+            meetingState.speakingPeers.add(payload.peer_id);
+          } else {
+            meetingState.speakingPeers.delete(payload.peer_id);
+          }
+          updateParticipantsUI();
+        });
+
+        // Remote Mic Status Update
+        onTauriEvent("meeting://mic-status", (payload) => {
+          if (payload?.is_muted) {
+            meetingState.mutedPeers.add(payload.peer_id);
+          } else {
+            meetingState.mutedPeers.delete(payload.peer_id);
+          }
+          updateParticipantsUI();
+        });
+
+        // Error notification
+        onTauriEvent("meeting://error", (msg) => {
+          toast(String(msg), "error");
+        });
+
+        // Meeting Left Event
+        onTauriEvent("meeting://left", () => {
+          exitMeetingView();
+        });
+      }
+
+      // Initialize meeting event listeners on boot
+      setupMeetingListeners();
     </script>
   </body>
 </html>
