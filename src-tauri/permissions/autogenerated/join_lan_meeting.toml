@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-join-lan-meeting"
+description = "Enables the join_lan_meeting command without any pre-configured scope."
+commands.allow = ["join_lan_meeting"]
+
+[[permission]]
+identifier = "deny-join-lan-meeting"
+description = "Denies the join_lan_meeting command without any pre-configured scope."
+commands.deny = ["join_lan_meeting"]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-toggle-meeting-screen-share"
+description = "Enables the toggle_meeting_screen_share command without any pre-configured scope."
+commands.allow = ["toggle_meeting_screen_share"]
+
+[[permission]]
+identifier = "deny-toggle-meeting-screen-share"
+description = "Denies the toggle_meeting_screen_share command without any pre-configured scope."
+commands.deny = ["toggle_meeting_screen_share"]
