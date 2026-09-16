@@ -1,57 +1,35 @@
+"""Builds the app icons and the web logo from assets/logo.png.
+
+Run from anywhere: python src-tauri/icons/generate.py
+"""
+
 from pathlib import Path
 
-from PIL import Image, ImageDraw
+from PIL import Image
 
 
-SIZE = 1024
-SCALE = SIZE / 512
 HERE = Path(__file__).parent
+ROOT = HERE.parent.parent
+SOURCE = ROOT / "assets" / "logo.png"
 
+# Transparent breathing room around the artwork, as a fraction of the side.
+MARGIN = 0.04
 
-def points(values):
-    return [(round(x * SCALE), round(y * SCALE)) for x, y in values]
+logo = Image.open(SOURCE).convert("RGBA")
 
+# Trim the transparent border, then centre the artwork on a square canvas so
+# the wreath fills the icon instead of floating in empty space.
+logo = logo.crop(logo.getchannel("A").getbbox())
+side = round(max(logo.size) * (1 + 2 * MARGIN))
+square = Image.new("RGBA", (side, side), (0, 0, 0, 0))
+square.paste(logo, ((side - logo.width) // 2, (side - logo.height) // 2), logo)
 
-image = Image.new("RGBA", (SIZE, SIZE), "#047857")
-draw = ImageDraw.Draw(image)
-
-# Layered greens approximate the SVG gradient while keeping generation portable.
-for inset in range(112):
-    mix = inset / 111
-    color = (
-        round(34 + (4 - 34) * mix),
-        round(197 + (120 - 197) * mix),
-        round(94 + (87 - 94) * mix),
-        255,
-    )
-    box = tuple(round(value * SCALE) for value in (inset, inset, 512 - inset, 512 - inset))
-    draw.rounded_rectangle(box, radius=round((112 - inset) * SCALE), fill=color)
-
-draw.rounded_rectangle(
-    tuple(round(value * SCALE) for value in (112, 80, 400, 344)),
-    radius=round(56 * SCALE),
-    fill="#f0fdf4",
-)
-draw.polygon(points([(135, 300), (127, 402), (239, 304)]), fill="#f0fdf4")
-draw.polygon(
-    points(
-        [
-            (256, 119),
-            (193, 213),
-            (232, 213),
-            (176, 304),
-            (234, 304),
-            (234, 328),
-            (278, 328),
-            (278, 304),
-            (336, 304),
-            (280, 213),
-            (319, 213),
-        ]
-    ),
-    fill="#15803d",
+icon = square.resize((512, 512), Image.Resampling.LANCZOS)
+icon.save(HERE / "icon.png", optimize=True)
+square.save(
+    HERE / "icon.ico",
+    sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)],
 )
 
-image = image.resize((512, 512), Image.Resampling.LANCZOS)
-image.save(HERE / "icon.png")
-image.save(HERE / "icon.ico", sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
+# Served by the web UI at /logo.png (login header and favicon).
+square.resize((192, 192), Image.Resampling.LANCZOS).save(ROOT / "static" / "logo.png", optimize=True)

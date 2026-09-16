@@ -17,10 +17,13 @@
 *.db-log
 
 # Allow vscode
-# !.vscode # Commented by default
 
 !.example.env
 # generated frontend bundles (built by build.rs / `bun run build`)
 /static/app.js
 /static/app.css
 /static/pip.js
+branch_structure.json
+temp_auto_push.bat
+temp_interactive_push.bat
+.gitignore
