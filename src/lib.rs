@@ -22,6 +22,20 @@ async fn index() -> HttpResponse {
         .body(include_str!("../static/index.html"))
 }
 
+#[cfg(not(debug_assertions))]
+async fn app_js() -> HttpResponse {
+    HttpResponse::Ok()
+        .content_type("application/javascript; charset=utf-8")
+        .body(include_str!("../static/app.js"))
+}
+
+#[cfg(not(debug_assertions))]
+async fn app_css() -> HttpResponse {
+    HttpResponse::Ok()
+        .content_type("text/css; charset=utf-8")
+        .body(include_str!("../static/app.css"))
+}
+
 /// Debug builds read the UI from disk on every request and inject a small
 /// script that reloads the page whenever `static/index.html` changes, so UI
 /// edits show up instantly without rebuilding Rust.
@@ -32,6 +46,8 @@ mod dev_reload {
     use actix_web::HttpResponse;
 
     const INDEX_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/static/index.html");
+    const JS_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/static/app.js");
+    const CSS_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/static/app.css");
 
     const RELOAD_SCRIPT: &str = r#"<script>
 (() => {
@@ -48,12 +64,17 @@ mod dev_reload {
 </script>"#;
 
     fn version() -> String {
-        fs::metadata(INDEX_PATH)
-            .and_then(|meta| meta.modified())
-            .ok()
-            .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
-            .map(|elapsed| elapsed.as_nanos().to_string())
-            .unwrap_or_default()
+        let mut total = 0u128;
+        for path in [INDEX_PATH, JS_PATH, CSS_PATH] {
+            if let Ok(meta) = fs::metadata(path) {
+                if let Ok(modified) = meta.modified() {
+                    if let Ok(elapsed) = modified.duration_since(UNIX_EPOCH) {
+                        total = total.wrapping_add(elapsed.as_nanos());
+                    }
+                }
+            }
+        }
+        total.to_string()
     }
 
     pub async fn index() -> HttpResponse {
@@ -75,6 +96,28 @@ mod dev_reload {
             .body(html)
     }
 
+    pub async fn app_js() -> HttpResponse {
+        match fs::read_to_string(JS_PATH) {
+            Ok(content) => HttpResponse::Ok()
+                .content_type("application/javascript; charset=utf-8")
+                .insert_header(("Cache-Control", "no-store"))
+                .body(content),
+            Err(error) => HttpResponse::InternalServerError()
+                .body(format!("cannot read {JS_PATH}: {error}")),
+        }
+    }
+
+    pub async fn app_css() -> HttpResponse {
+        match fs::read_to_string(CSS_PATH) {
+            Ok(content) => HttpResponse::Ok()
+                .content_type("text/css; charset=utf-8")
+                .insert_header(("Cache-Control", "no-store"))
+                .body(content),
+            Err(error) => HttpResponse::InternalServerError()
+                .body(format!("cannot read {CSS_PATH}: {error}")),
+        }
+    }
+
     pub async fn version_route() -> HttpResponse {
         HttpResponse::Ok()
             .insert_header(("Cache-Control", "no-store"))
@@ -83,7 +126,7 @@ mod dev_reload {
 }
 
 #[cfg(debug_assertions)]
-use dev_reload::index;
+use dev_reload::{app_css, app_js, index};
 
 #[derive(Deserialize)]
 struct AuthReq {
@@ -270,6 +313,8 @@ pub async fn create_server(listener: TcpListener, db_path: PathBuf) -> io::Resul
             .route("/api/auth/verify", web::post().to(api_verify))
             .route("/api/emojis", web::get().to(api_emojis))
             .route("/ws", web::get().to(chat_ws))
+            .route("/app.js", web::get().to(app_js))
+            .route("/app.css", web::get().to(app_css))
             .route("/", web::get().to(index));
 
         #[cfg(debug_assertions)]

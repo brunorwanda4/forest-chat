@@ -4,11 +4,18 @@
   "type": "module",
   "scripts": {
     "build:css": "tailwindcss -i styles/app.css -o static/app.css --minify",
-    "watch:css": "tailwindcss -i styles/app.css -o static/app.css --watch"
+    "build:js": "bun build web/src/main.ts --outfile static/app.js --target browser --minify",
+    "build": "bun run build:css && bun run build:js",
+    "watch:css": "tailwindcss -i styles/app.css -o static/app.css --watch",
+    "watch:js": "bun build web/src/main.ts --outfile static/app.js --target browser --watch",
+    "dev": "bun run build:css && bun build web/src/main.ts --outfile static/app.js --target browser --watch",
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "@tailwindcss/cli": "^4.1.13",
+    "@types/bun": "^1.4.2",
     "daisyui": "^5.1.7",
-    "tailwindcss": "^4.1.13"
+    "tailwindcss": "^4.1.13",
+    "typescript": "^7.0.2"
   }
 }

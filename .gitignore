@@ -1,6 +1,23 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+/node_modules
+/.pnp
+.pnp.js
+.yarn/install-state.gz
+
+# testing
+/coverage
+
 /target
 /src-tauri/gen
 *.db
 *.db-wal
 *.db-shm
 *.db-log
+
+# Allow vscode
+# !.vscode # Commented by default
+
+
+!.example.env
