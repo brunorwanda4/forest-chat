@@ -4,12 +4,18 @@ use std::{env, fs, net::TcpListener, sync::mpsc, thread, time::Duration};
 
 use tauri::{Manager, WebviewUrl, webview::WebviewWindowBuilder};
 
+mod attachments;
 mod lan_meeting;
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .manage(lan_meeting::commands::LanMeetingManager::default())
         .invoke_handler(tauri::generate_handler![
+            attachments::open_attachment_externally,
+            attachments::save_attachment_as,
+            attachments::reveal_saved_file,
             lan_meeting::commands::get_lan_ip_info,
             lan_meeting::commands::create_lan_meeting,
             lan_meeting::commands::join_lan_meeting,

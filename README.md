@@ -98,6 +98,27 @@ Forest Chat supports persistent user accounts backed by local SQLite storage (`T
   - Admins can **Approve** or **Decline** join requests in real-time.
   - Admins can promote other members to **Admins** (`+ Make Admin`).
 
+## Files, images and videos
+
+Any file can be attached to a group or direct message with the 📎 button next to the composer.
+
+- **Upload**: the file is streamed to `POST /api/upload` and written straight to disk, so memory
+  stays flat and there is **no size limit**. A progress bar above the composer shows the percentage
+  while it uploads, with a Cancel button. The chat message is only sent once the upload finishes.
+- **Storage**: bytes live in an `uploads/` folder next to the database (the app-data directory for
+  the desktop app). The database keeps only the metadata: id, file name, MIME type, size and owner.
+  Attachments are never deleted, so that folder grows until you clear it by hand.
+- **In chat**: images and videos render inline, audio gets a player, and everything else shows as a
+  file card with its icon and size. Clicking an image, or the View button, opens the viewer:
+  fullscreen images, a video player, an audio player, or an embedded PDF reader.
+- **Open**: in the desktop app this downloads the file and hands it to the program Windows
+  associates with it (Acrobat for a PDF, your video player for a video). In a browser it opens a
+  new tab.
+- **Save**: the desktop app shows the real system save dialog; the browser does a normal download.
+
+Downloads go through `GET /files/{id}` and support range requests, so seeking inside a large video
+does not re-download it. Both routes require the session token of a signed-in user.
+
 ## Protocol
 
 Client → server (JSON over `/ws?name=<name>&token=<token>`):
@@ -112,6 +133,8 @@ Client → server (JSON over `/ws?name=<name>&token=<token>`):
 { "type": "join", "room": "general" }
 { "type": "leave", "room": "general" }
 { "type": "send", "chat": { "kind": "room", "id": "general" }, "text": "hi" }
+{ "type": "send", "chat": { "kind": "room", "id": "general" }, "text": "",
+  "attachment": { "id": "<from /api/upload>", "name": "clip.mp4", "mime": "video/mp4", "size": 1048576 } }
 { "type": "send", "chat": { "kind": "dm", "id": "alice" }, "text": "hi" }
 { "type": "typing", "chat": { "kind": "dm", "id": "alice" }, "active": true }
 { "type": "history", "chat": { "kind": "room", "id": "general" } }

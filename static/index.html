@@ -14,6 +14,62 @@
         color: var(--color-base-content);
         box-shadow: 0 1px 3px rgb(0 0 0 / 0.2);
       }
+      .mention-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        padding: 0.1rem 0.45rem;
+        border-radius: 9999px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        background-color: color-mix(in oklab, var(--color-primary) 18%, transparent);
+        color: var(--color-primary);
+        border: 1px solid color-mix(in oklab, var(--color-primary) 30%, transparent);
+        cursor: pointer;
+        transition: all 0.15s ease;
+        vertical-align: baseline;
+      }
+      .mention-pill:hover {
+        background-color: var(--color-primary);
+        color: var(--color-primary-content);
+      }
+      .chat-bubble-primary .mention-pill {
+        background-color: rgba(255, 255, 255, 0.25);
+        color: #fff;
+        border-color: rgba(255, 255, 255, 0.4);
+      }
+      .chat-bubble-primary .mention-pill:hover {
+        background-color: #fff;
+        color: var(--color-primary);
+      }
+      .chat-bubble pre {
+        background-color: rgba(0, 0, 0, 0.35);
+        border-radius: 0.5rem;
+        padding: 0.5rem 0.75rem;
+        margin: 0.35rem 0;
+        overflow-x: auto;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        font-size: 0.75rem;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+      }
+      .chat-bubble code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        background-color: rgba(0, 0, 0, 0.2);
+        padding: 0.1rem 0.3rem;
+        border-radius: 0.25rem;
+        font-size: 0.8em;
+      }
+      .chat-bubble pre code {
+        background: transparent;
+        padding: 0;
+      }
+      .no-scrollbar::-webkit-scrollbar {
+        display: none;
+      }
+      .no-scrollbar {
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+      }
     </style>
   </head>
 
@@ -140,17 +196,166 @@
 
           <div id="typing" class="text-base-content/70 flex h-6 items-center gap-2 px-5 text-sm"></div>
 
-          <form id="composer" class="bg-base-100 border-base-300 flex gap-2 border-t p-3">
-            <input
-              id="composer-input"
-              class="input input-bordered flex-1"
-              placeholder="Pick a chat to start"
-              maxlength="2000"
-              autocomplete="off"
-              disabled
-            />
-            <button id="composer-send" class="btn btn-primary" disabled>Send</button>
-          </form>
+          <div id="uploads" class="bg-base-100 border-base-300 space-y-2 border-t px-3 pt-3 empty:hidden"></div>
+
+          <!-- Chat Composer Container -->
+          <div id="composer-container" class="relative bg-base-100 border-t border-base-300 p-2 sm:p-3">
+            <!-- Hidden native file input -->
+            <input id="file-input" type="file" multiple class="hidden" />
+
+            <!-- Floating Formatting Toolbar (appears on text selection) -->
+            <div
+              id="composer-formatting-toolbar"
+              class="hidden absolute z-30 -top-11 left-6 flex items-center gap-0.5 px-2 py-1 bg-base-100/95 backdrop-blur-md border border-base-300 shadow-xl rounded-full text-xs transition-all animate-in fade-in"
+              role="toolbar"
+              aria-label="Text formatting options"
+            >
+              <button type="button" class="btn btn-ghost btn-xs btn-circle font-bold" data-format="bold" title="Bold (**text**)">B</button>
+              <button type="button" class="btn btn-ghost btn-xs btn-circle italic font-serif" data-format="italic" title="Italic (*text*)">I</button>
+              <div class="divider divider-horizontal mx-0.5 my-1"></div>
+              <button type="button" class="btn btn-ghost btn-xs btn-circle font-mono" data-format="code" title="Inline code (`code`)">&lt;/&gt;</button>
+              <button type="button" class="btn btn-ghost btn-xs btn-circle font-mono" data-format="codeblock" title="Code block (```)">{}</button>
+              <div class="divider divider-horizontal mx-0.5 my-1"></div>
+              <button type="button" class="btn btn-ghost btn-xs btn-circle" data-format="bullet" title="Bulleted list (- )">•</button>
+              <button type="button" class="btn btn-ghost btn-xs btn-circle font-mono text-[10px]" data-format="number" title="Numbered list (1. )">1.</button>
+            </div>
+
+            <!-- Floating Mention Menu (appears when typing @) -->
+            <div
+              id="composer-mention-menu"
+              class="hidden absolute z-40 bottom-full mb-2 left-3 right-3 sm:right-auto sm:w-80 bg-base-100/98 backdrop-blur-md border border-base-300 shadow-2xl rounded-2xl p-1.5 flex flex-col max-h-60 overflow-hidden"
+              role="listbox"
+              aria-label="Mention members"
+            >
+              <div class="flex items-center justify-between px-2.5 py-1 text-[11px] font-semibold text-base-content/60 uppercase tracking-wider border-b border-base-300/60 pb-1 mb-1">
+                <span>Group Members</span>
+                <span class="text-[10px] font-normal lowercase opacity-70">↑↓ navigate • ↵ choose</span>
+              </div>
+              <div id="mention-menu-list" class="space-y-0.5 overflow-y-auto flex-1 overscroll-contain max-h-48"></div>
+            </div>
+
+            <!-- Floating Emoji Picker Popover -->
+            <div
+              id="composer-emoji-picker"
+              class="hidden absolute z-40 bottom-full mb-2 left-3 w-80 bg-base-100/98 backdrop-blur-md border border-base-300 shadow-2xl rounded-2xl p-2.5 flex flex-col gap-2"
+              role="dialog"
+              aria-label="Emoji Picker"
+            >
+              <div class="flex items-center gap-1.5 pb-1 border-b border-base-300">
+                <input
+                  id="emoji-search"
+                  type="text"
+                  placeholder="Search emoji…"
+                  class="input input-bordered input-xs flex-1 rounded-lg"
+                  autocomplete="off"
+                />
+                <button type="button" id="btn-close-emoji" class="btn btn-ghost btn-xs btn-circle" title="Close">✕</button>
+              </div>
+              <!-- Categories -->
+              <div id="emoji-tabs" class="flex gap-1 overflow-x-auto text-xs py-0.5 no-scrollbar">
+                <button type="button" class="btn btn-xs btn-ghost btn-active" data-cat="all">All</button>
+                <button type="button" class="btn btn-xs btn-ghost" data-cat="smileys">😊</button>
+                <button type="button" class="btn btn-xs btn-ghost" data-cat="gestures">👍</button>
+                <button type="button" class="btn btn-xs btn-ghost" data-cat="hearts">❤️</button>
+                <button type="button" class="btn btn-xs btn-ghost" data-cat="nature">🌲</button>
+                <button type="button" class="btn btn-xs btn-ghost" data-cat="objects">🎉</button>
+              </div>
+              <div id="emoji-grid" class="grid grid-cols-8 gap-1 max-h-48 overflow-y-auto p-1"></div>
+            </div>
+
+            <!-- Dropzone Overlay (active on drag over) -->
+            <div
+              id="composer-dropzone"
+              class="hidden absolute inset-2 z-20 bg-primary/10 border-2 border-dashed border-primary rounded-2xl flex items-center justify-center gap-2 backdrop-blur-sm pointer-events-none transition-all"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-primary animate-bounce" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+              </svg>
+              <span class="text-primary font-semibold text-sm">Drop files here to attach</span>
+            </div>
+
+            <!-- Main Input Box with Rounded Border & Focus Ring -->
+            <form
+              id="composer"
+              class="bg-base-200/60 hover:bg-base-200/80 focus-within:bg-base-100 focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/20 border border-base-300 rounded-2xl shadow-sm transition-all flex flex-col p-2 gap-1.5"
+            >
+              <!-- Selected Attachment Previews Strip (if any files attached) -->
+              <div id="composer-attachments" class="empty:hidden flex flex-wrap gap-2 pt-0.5 px-1"></div>
+
+              <!-- Textarea for Multi-line Message Input -->
+              <div class="relative flex-1 min-w-0">
+                <textarea
+                  id="composer-input"
+                  rows="1"
+                  class="textarea textarea-ghost w-full resize-none p-1.5 sm:p-2 text-sm leading-relaxed border-0 focus:outline-none focus:ring-0 min-h-[42px] max-h-[180px] bg-transparent overflow-y-auto block placeholder:text-base-content/40"
+                  placeholder="Pick a chat to start"
+                  maxlength="2000"
+                  autocomplete="off"
+                  disabled
+                ></textarea>
+              </div>
+
+              <!-- Composer Footer / Actions Toolbar -->
+              <div class="flex items-center justify-between gap-2 pt-1 px-1 border-t border-base-300/40">
+                <div class="flex items-center gap-1">
+                  <!-- Attach Button -->
+                  <button
+                    id="btn-attach"
+                    type="button"
+                    class="btn btn-ghost btn-xs sm:btn-sm btn-circle text-base-content/70 hover:text-primary transition-colors"
+                    title="Attach files (or drag & drop / paste)"
+                    aria-label="Attach file"
+                    disabled
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 sm:h-5 sm:w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                    </svg>
+                  </button>
+
+                  <!-- Emoji Picker Button -->
+                  <button
+                    id="btn-emoji"
+                    type="button"
+                    class="btn btn-ghost btn-xs sm:btn-sm btn-circle text-base-content/70 hover:text-primary transition-colors"
+                    title="Insert emoji"
+                    aria-label="Insert emoji"
+                    disabled
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 sm:h-5 sm:w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </button>
+
+                  <!-- Hint / Helper -->
+                  <div class="hidden md:flex items-center text-[11px] text-base-content/40 ml-2 gap-2 select-none">
+                    <span><kbd class="kbd kbd-xs">@</kbd> mention</span>
+                    <span><kbd class="kbd kbd-xs">Shift+↵</kbd> newline</span>
+                  </div>
+                </div>
+
+                <div class="flex items-center gap-2">
+                  <!-- Dynamic Character Counter (hidden until long) -->
+                  <span id="composer-char-count" class="hidden text-[11px] font-mono tabular-nums text-base-content/50"></span>
+
+                  <!-- Send Button -->
+                  <button
+                    id="composer-send"
+                    type="submit"
+                    class="btn btn-primary btn-sm rounded-xl px-3 sm:px-4 gap-1.5 shadow-sm transition-all disabled:opacity-40"
+                    title="Send message (Enter)"
+                    disabled
+                  >
+                    <span class="hidden sm:inline font-medium">Send</span>
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 rotate-90" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
         </div>
 
         <!-- Meeting pane -->
@@ -392,9 +597,6 @@
         <h3 class="font-bold text-lg flex items-center gap-2">
           <span class="text-primary text-xl">👥</span> Create New Group
         </h3>
-        <p class="py-2 text-xs text-base-content/70">
-          As the creator, you will be the group admin. Other people will see this group and can request to join. You can approve their requests and promote other members to admins.
-        </p>
         <form id="form-create-group" class="space-y-4 pt-2">
           <div class="form-control">
             <label class="label py-1">
@@ -407,13 +609,12 @@
                 type="text"
                 placeholder="project-forest"
                 class="input input-sm input-bordered join-item flex-1 font-mono"
-                maxlength="32"
                 pattern="[\p{L}\p{N}_\-]+"
                 required
               />
             </div>
             <label class="label py-1">
-              <span class="label-text-alt text-base-content/60">Letters, numbers, - and _ only (max 32).</span>
+              <span class="label-text-alt text-base-content/60">Letters, numbers, - and _ only. Any length.</span>
             </label>
           </div>
           <div class="modal-action">
@@ -470,6 +671,25 @@
         <div id="panel-manage-members" class="hidden py-3 space-y-2 max-h-72 overflow-y-auto">
           <div id="list-manage-members" class="space-y-2"></div>
         </div>
+      </div>
+      <form method="dialog" class="modal-backdrop"><button>close</button></form>
+    </dialog>
+
+    <!-- Attachment Viewer Modal -->
+    <dialog id="modal-viewer" class="modal">
+      <div class="modal-box max-w-5xl p-0 overflow-hidden">
+        <div class="flex items-center justify-between gap-3 border-b border-base-300 p-3">
+          <div class="min-w-0">
+            <h3 id="viewer-title" class="truncate font-semibold"></h3>
+            <p id="viewer-meta" class="text-xs text-base-content/60"></p>
+          </div>
+          <div class="flex shrink-0 items-center gap-2">
+            <button id="viewer-open" type="button" class="btn btn-sm btn-ghost">Open</button>
+            <button id="viewer-save" type="button" class="btn btn-sm btn-primary">Save</button>
+            <button type="button" class="btn btn-sm btn-ghost btn-circle" onclick="$('modal-viewer').close()">✕</button>
+          </div>
+        </div>
+        <div id="viewer-body" class="flex max-h-[75vh] min-h-[16rem] items-center justify-center overflow-auto bg-base-300"></div>
       </div>
       <form method="dialog" class="modal-backdrop"><button>close</button></form>
     </dialog>
@@ -840,6 +1060,7 @@
 
         $("composer-input").disabled = false;
         $("composer-send").disabled = false;
+        $("btn-attach").disabled = false;
         $("composer-input").placeholder =
           chat.kind === "room" ? `Message #${chat.id}` : `Message @${chat.id}`;
         $("drawer").checked = false;
@@ -858,6 +1079,7 @@
           state.active = null;
           $("composer-input").disabled = true;
           $("composer-send").disabled = true;
+          $("btn-attach").disabled = true;
         }
         render();
       }
@@ -909,6 +1131,7 @@
         renderHeader();
         renderMessages();
         renderTyping();
+        renderUploads();
       }
 
       function renderSidebar() {
@@ -1110,7 +1333,9 @@
             h("time", { class: "text-xs opacity-50 ml-1" }, timeFmt.format(date))),
           h("div", {
             class: `chat-bubble max-w-[min(75%,36rem)] whitespace-pre-wrap break-words ${mine ? "chat-bubble-primary" : "chat-bubble-incoming"}`,
-          }, m.text),
+          },
+            m.attachment ? attachmentNode(m.attachment) : null,
+            m.text ? h("div", { class: m.attachment ? "pt-1" : "" }, m.text) : null),
         ));
         return nodes;
       }
@@ -1133,6 +1358,231 @@
           h("span", { class: "loading loading-dots loading-xs" }),
         );
       }
+
+      // ---------- attachments ----------
+
+      const isImage = (att) => att.mime.startsWith("image/");
+      const isVideo = (att) => att.mime.startsWith("video/");
+      const isAudio = (att) => att.mime.startsWith("audio/");
+      const isPdf = (att) => att.mime === "application/pdf" || /\.pdf$/i.test(att.name);
+      const canPreview = (att) => isImage(att) || isVideo(att) || isAudio(att) || isPdf(att);
+      const isDesktop = () => Boolean(window.__TAURI_INTERNALS__);
+
+      /** Files are served over HTTP, so the session token rides in the query string. */
+      function fileUrl(att, download = false) {
+        const q = new URLSearchParams({ name: state.me ?? "", token: state.token ?? "" });
+        if (download) q.set("download", "1");
+        return `/files/${encodeURIComponent(att.id)}?${q}`;
+      }
+
+      const absoluteFileUrl = (att, download = false) =>
+        new URL(fileUrl(att, download), location.href).href;
+
+      function formatBytes(bytes) {
+        if (!Number.isFinite(bytes) || bytes < 0) return "";
+        const units = ["B", "KB", "MB", "GB", "TB"];
+        let value = bytes;
+        let unit = 0;
+        while (value >= 1024 && unit < units.length - 1) {
+          value /= 1024;
+          unit += 1;
+        }
+        return `${value < 10 && unit > 0 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`;
+      }
+
+      function fileIcon(att) {
+        if (isImage(att)) return "🖼️";
+        if (isVideo(att)) return "🎬";
+        if (isAudio(att)) return "🎵";
+        if (isPdf(att)) return "📕";
+        if (/\.(zip|rar|7z|tar|gz)$/i.test(att.name)) return "🗜️";
+        return "📄";
+      }
+
+      /** Desktop: system save dialog. Browser: normal download. */
+      async function saveAttachment(att) {
+        if (isDesktop()) {
+          try {
+            const path = await tauriInvoke("save_attachment_as", {
+              url: absoluteFileUrl(att, true),
+              fileName: att.name,
+            });
+            if (path) toast(`Saved to ${path}`, "success");
+          } catch (err) {
+            toast(String(err?.message ?? err));
+          }
+          return;
+        }
+        const link = h("a", { href: fileUrl(att, true), download: att.name });
+        document.body.append(link);
+        link.click();
+        link.remove();
+      }
+
+      /** Desktop: open in the system's default app. Browser: new tab. */
+      async function openAttachment(att) {
+        if (isDesktop()) {
+          try {
+            await tauriInvoke("open_attachment_externally", {
+              url: absoluteFileUrl(att),
+              fileName: att.name,
+            });
+          } catch (err) {
+            toast(String(err?.message ?? err));
+          }
+          return;
+        }
+        window.open(fileUrl(att), "_blank", "noopener");
+      }
+
+      function openViewer(att) {
+        const url = fileUrl(att);
+        $("viewer-title").textContent = att.name;
+        $("viewer-meta").textContent = `${att.mime} · ${formatBytes(att.size)}`;
+        $("viewer-open").textContent = isDesktop() ? "Open in app" : "Open in tab";
+        $("viewer-open").onclick = () => openAttachment(att);
+        $("viewer-save").onclick = () => saveAttachment(att);
+
+        let body;
+        if (isImage(att)) {
+          body = h("img", { src: url, alt: att.name, class: "max-h-[75vh] object-contain" });
+        } else if (isVideo(att)) {
+          body = h("video", { src: url, controls: "", autoplay: "", class: "max-h-[75vh] w-full bg-black" });
+        } else if (isAudio(att)) {
+          body = h("audio", { src: url, controls: "", class: "w-full p-8" });
+        } else if (isPdf(att)) {
+          body = h("iframe", { src: url, title: att.name, class: "h-[75vh] w-full bg-base-100" });
+        } else {
+          body = h("div", { class: "p-8 text-center text-base-content/70" },
+            h("div", { class: "text-5xl" }, fileIcon(att)),
+            h("p", { class: "pt-3" }, "No preview for this file type. Use Open or Save."));
+        }
+        $("viewer-body").replaceChildren(body);
+        $("modal-viewer").showModal();
+      }
+
+      // Stops video/audio playback when the viewer closes.
+      $("modal-viewer").addEventListener("close", () => $("viewer-body").replaceChildren());
+
+      function attachmentActions(att) {
+        return h("div", { class: "mt-1 flex flex-wrap gap-1" },
+          canPreview(att) ? h("button", { type: "button", class: "btn btn-xs", onclick: () => openViewer(att) }, "View") : null,
+          h("button", { type: "button", class: "btn btn-xs", onclick: () => openAttachment(att) },
+            isDesktop() ? "Open in app" : "Open"),
+          h("button", { type: "button", class: "btn btn-xs btn-primary", onclick: () => saveAttachment(att) }, "Save"),
+        );
+      }
+
+      function attachmentNode(att) {
+        const url = fileUrl(att);
+        let preview;
+        if (isImage(att)) {
+          preview = h("img", {
+            src: url, alt: att.name, loading: "lazy",
+            class: "max-h-72 max-w-full cursor-zoom-in rounded-lg object-contain",
+            onclick: () => openViewer(att),
+          });
+        } else if (isVideo(att)) {
+          preview = h("video", {
+            src: url, controls: "", preload: "metadata",
+            class: "max-h-72 max-w-full rounded-lg bg-black",
+          });
+        } else if (isAudio(att)) {
+          preview = h("audio", { src: url, controls: "", class: "w-64 max-w-full" });
+        } else {
+          preview = h("div", {
+            class: "flex items-center gap-3 rounded-lg bg-base-100/20 p-2",
+            onclick: () => (isPdf(att) ? openViewer(att) : openAttachment(att)),
+          },
+            h("span", { class: "text-3xl" }, fileIcon(att)),
+            h("div", { class: "min-w-0" },
+              h("div", { class: "truncate text-sm font-medium" }, att.name),
+              h("div", { class: "text-xs opacity-70" }, formatBytes(att.size))));
+        }
+        return h("div", { class: "space-y-1" }, preview, attachmentActions(att));
+      }
+
+      // ---------- uploads ----------
+
+      let uploadSeq = 0;
+      /** id -> { name, size, pct, xhr, chat, key } */
+      const uploads = new Map();
+
+      function renderUploads() {
+        const activeKey = state.active ? chatKey(state.active) : null;
+        const items = [...uploads.values()].filter((u) => u.key === activeKey);
+        $("uploads").replaceChildren(...items.map((u) =>
+          h("div", { class: "flex items-center gap-3 rounded-lg bg-base-200 p-2" },
+            h("span", { class: "text-xl" }, "📤"),
+            h("div", { class: "min-w-0 flex-1" },
+              h("div", { class: "flex justify-between gap-2 text-xs" },
+                h("span", { class: "truncate font-medium" }, u.name),
+                h("span", { class: "opacity-70" }, `${u.pct}% of ${formatBytes(u.size)}`)),
+              h("progress", { class: "progress progress-primary h-2 w-full", value: String(u.pct), max: "100" })),
+            h("button", { type: "button", class: "btn btn-xs btn-ghost", onclick: () => cancelUpload(u.id) }, "Cancel"))));
+      }
+
+      function cancelUpload(id) {
+        uploads.get(id)?.xhr.abort();
+      }
+
+      /**
+       * Uploads one file, showing live progress, then posts a chat message that
+       * carries the returned metadata. Bytes never go through the WebSocket.
+       */
+      function uploadFile(file, chat) {
+        const id = ++uploadSeq;
+        const xhr = new XMLHttpRequest();
+        const entry = { id, name: file.name, size: file.size, pct: 0, xhr, chat, key: chatKey(chat) };
+        uploads.set(id, entry);
+        renderUploads();
+
+        const finish = () => {
+          uploads.delete(id);
+          renderUploads();
+        };
+
+        xhr.upload.addEventListener("progress", (e) => {
+          if (!e.lengthComputable) return;
+          entry.pct = Math.round((e.loaded / e.total) * 100);
+          renderUploads();
+        });
+        xhr.addEventListener("load", () => {
+          finish();
+          let body = null;
+          try {
+            body = JSON.parse(xhr.responseText);
+          } catch {
+            body = null;
+          }
+          if (xhr.status !== 200 || !body?.id) {
+            toast(body?.error ?? `Could not send ${file.name} (${xhr.status}).`);
+            return;
+          }
+          send({ type: "send", chat: entry.chat, text: "", attachment: body });
+        });
+        xhr.addEventListener("error", () => {
+          finish();
+          toast(`Could not send ${file.name}. Check the connection.`);
+        });
+        xhr.addEventListener("abort", finish);
+
+        const query = new URLSearchParams({ name: state.me ?? "", token: state.token ?? "" });
+        xhr.open("POST", `/api/upload?${query}`);
+        const form = new FormData();
+        form.append("file", file, file.name);
+        xhr.send(form);
+      }
+
+      $("btn-attach").addEventListener("click", () => $("file-input").click());
+
+      $("file-input").addEventListener("change", (e) => {
+        const chat = state.active;
+        const files = [...e.target.files];
+        e.target.value = "";
+        if (!chat) return;
+        for (const file of files) uploadFile(file, chat);
+      });
 
       // ---------- modals & group actions ----------
 

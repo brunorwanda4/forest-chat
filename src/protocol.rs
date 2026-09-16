@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 use crate::db::StoredMessage;
 
 pub const MAX_NAME_LEN: usize = 24;
-pub const MAX_ROOM_LEN: usize = 32;
 pub const MAX_TEXT_LEN: usize = 2000;
+pub const MAX_FILE_NAME_LEN: usize = 200;
 
 /// A conversation: a group room or a direct chat with one person.
 ///
@@ -17,6 +17,29 @@ pub const MAX_TEXT_LEN: usize = 2000;
 pub enum Chat {
     Room(String),
     Dm(String),
+}
+
+/// A file uploaded through `/api/upload` and attached to one message.
+///
+/// The bytes live on disk next to the database; only this metadata travels
+/// over the WebSocket and is stored with the message.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Attachment {
+    pub id: String,
+    pub name: String,
+    pub mime: String,
+    pub size: i64,
+}
+
+impl Attachment {
+    /// Rejects metadata a client made up instead of getting from an upload.
+    pub fn looks_valid(&self) -> bool {
+        !self.id.is_empty()
+            && self.id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+            && !self.name.is_empty()
+            && self.name.chars().count() <= MAX_FILE_NAME_LEN
+            && self.size >= 0
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -37,7 +60,12 @@ pub struct RequestInfo {
 pub enum ClientMsg {
     Join { room: String },
     Leave { room: String },
-    Send { chat: Chat, text: String },
+    Send {
+        chat: Chat,
+        text: String,
+        #[serde(default)]
+        attachment: Option<Attachment>,
+    },
     Typing { chat: Chat, active: bool },
     History { chat: Chat },
     CreateRoom { room: String },
@@ -76,6 +104,8 @@ pub enum ServerMsg<'a> {
         from: &'a str,
         text: &'a str,
         ts: i64,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        attachment: Option<&'a Attachment>,
     },
     Typing {
         chat: Chat,
@@ -132,6 +162,10 @@ pub fn valid_name(name: &str) -> bool {
     valid_ident(name, MAX_NAME_LEN)
 }
 
+/// Group names have no length cap; only the character set is enforced.
 pub fn valid_room(room: &str) -> bool {
-    valid_ident(room, MAX_ROOM_LEN)
+    !room.is_empty()
+        && room
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
 }

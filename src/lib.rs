@@ -1,4 +1,5 @@
 mod db;
+mod files;
 mod hub;
 mod protocol;
 mod session;
@@ -10,7 +11,7 @@ use actix_web::{
 };
 use serde::Deserialize;
 
-use crate::{db::Store, hub::Hub, protocol::valid_name};
+use crate::{db::Store, files::Uploads, hub::Hub, protocol::valid_name};
 
 
 /// Release builds embed the UI so the binary is self-contained.
@@ -204,6 +205,13 @@ async fn chat_ws(
 /// Supplying the listener lets the desktop app reserve an available port before
 /// it starts the Tauri window, while the standalone server can keep using `PORT`.
 pub async fn create_server(listener: TcpListener, db_path: PathBuf) -> io::Result<Server> {
+    // Uploaded files live beside the database so both move together.
+    let uploads_dir = db_path
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("."))
+        .join("uploads");
+    let uploads = Uploads::open(uploads_dir).await?;
+
     let db_path = db_path.to_string_lossy().into_owned();
     let store = Store::open(&db_path).await.map_err(io::Error::other)?;
     let hub = Hub::with_rooms(store.rooms().await.map_err(io::Error::other)?);
@@ -212,7 +220,10 @@ pub async fn create_server(listener: TcpListener, db_path: PathBuf) -> io::Resul
         let app = App::new()
             .app_data(web::Data::new(hub.clone()))
             .app_data(web::Data::new(store.clone()))
+            .app_data(web::Data::new(uploads.clone()))
             .wrap(Logger::new("%s %r %Dms"))
+            .route("/api/upload", web::post().to(files::upload))
+            .route("/files/{id}", web::get().to(files::download))
             .route("/api/auth/register", web::post().to(api_register))
             .route("/api/auth/login", web::post().to(api_login))
             .route("/api/auth/verify", web::post().to(api_verify))

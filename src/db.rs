@@ -11,7 +11,7 @@ use sha2::{Digest, Sha256};
 use tokio::sync::mpsc;
 use turso::{Builder, Connection, Database, Value};
 
-use crate::protocol::{MemberInfo, RequestInfo};
+use crate::protocol::{Attachment, MemberInfo, RequestInfo};
 
 /// Max writes committed in a single transaction.
 const BATCH_SIZE: usize = 512;
@@ -494,7 +494,7 @@ impl Store {
         let conn = self.db.connect()?;
         let mut rows = conn
             .query(
-                "SELECT sender, body, ts FROM messages
+                "SELECT sender, body, ts, attachment FROM messages
                  WHERE kind = ?1 AND target = ?2
                  ORDER BY id DESC LIMIT ?3",
                 (kind, target, HISTORY_LIMIT),
@@ -503,10 +503,15 @@ impl Store {
 
         let mut messages = Vec::new();
         while let Some(row) = rows.next().await? {
+            let attachment = match row.get_value(3)? {
+                Value::Text(json) => serde_json::from_str::<Attachment>(&json).ok(),
+                _ => None,
+            };
             messages.push(StoredMessage {
                 from: text(row.get_value(0)?),
                 text: text(row.get_value(1)?),
                 ts: integer(row.get_value(2)?),
+                attachment,
             });
         }
         messages.reverse();
@@ -520,6 +525,7 @@ impl Store {
         sender: &str,
         body: &str,
         ts: i64,
+        attachment: Option<&Attachment>,
     ) {
         self.enqueue(Write::Message {
             kind,
@@ -527,7 +533,50 @@ impl Store {
             sender: sender.to_owned(),
             body: body.to_owned(),
             ts,
+            attachment: attachment.map(|a| {
+                serde_json::to_string(a).expect("attachment metadata always serializes")
+            }),
         });
+    }
+
+    /// Records an uploaded file. Written straight through (not batched) because
+    /// the upload response, and the message that follows it, need the row to exist.
+    #[allow(dead_code)]
+    pub async fn save_attachment(&self, attachment: &Attachment, owner: &str) -> Result<(), String> {
+        let conn = self.db.connect().map_err(|e| e.to_string())?;
+        conn.execute(
+            "INSERT INTO attachments (id, name, mime, size, owner, ts) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            (
+                attachment.id.as_str(),
+                attachment.name.as_str(),
+                attachment.mime.as_str(),
+                attachment.size,
+                owner,
+                now_ms(),
+            ),
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    #[allow(dead_code)]
+    pub async fn attachment(&self, id: &str) -> Option<Attachment> {
+        let conn = self.db.connect().ok()?;
+        let mut rows = conn
+            .query(
+                "SELECT id, name, mime, size FROM attachments WHERE id = ?1",
+                (id,),
+            )
+            .await
+            .ok()?;
+        let row = rows.next().await.ok()??;
+        Some(Attachment {
+            id: text(row.get_value(0).ok()?),
+            name: text(row.get_value(1).ok()?),
+            mime: text(row.get_value(2).ok()?),
+            size: integer(row.get_value(3).ok()?),
+        })
     }
 
     fn enqueue(&self, write: Write) {
@@ -561,12 +610,23 @@ async fn write_batch(conn: &Connection, batch: &[Write]) -> turso::Result<()> {
                 sender,
                 body,
                 ts,
+                attachment,
             } => {
                 conn.prepare_cached(
-                    "INSERT INTO messages (kind, target, sender, body, ts) VALUES (?1, ?2, ?3, ?4, ?5)",
+                    "INSERT INTO messages (kind, target, sender, body, ts, attachment) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                 )
                 .await?
-                .execute((*kind, target.as_str(), sender.as_str(), body.as_str(), *ts))
+                .execute((
+                    *kind,
+                    target.as_str(),
+                    sender.as_str(),
+                    body.as_str(),
+                    *ts,
+                    attachment
+                        .as_deref()
+                        .map(Value::from)
+                        .unwrap_or(Value::Null),
+                ))
                 .await?;
             }
         }

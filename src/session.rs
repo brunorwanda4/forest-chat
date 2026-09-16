@@ -357,14 +357,30 @@ async fn handle(
                 .await?;
         }
 
-        ClientMsg::Send { chat, text } => {
+        ClientMsg::Send {
+            chat,
+            text,
+            attachment,
+        } => {
             let text = text.trim();
-            if text.is_empty() {
+            if text.is_empty() && attachment.is_none() {
                 return Ok(());
             }
             if text.chars().count() > MAX_TEXT_LEN {
                 return reply_error(session, "Message is too long.").await;
             }
+            // Trust the stored row, not the client: name, mime and size come from
+            // the upload that actually happened.
+            let attachment = match attachment {
+                Some(meta) if meta.looks_valid() => match store.attachment(&meta.id).await {
+                    Some(stored) => Some(stored),
+                    None => {
+                        return reply_error(session, "That file is no longer available.").await;
+                    }
+                },
+                Some(_) => return reply_error(session, "Invalid attachment.").await,
+                None => None,
+            };
             let ts = now_ms();
 
             match chat {
@@ -378,10 +394,11 @@ async fn handle(
                         from: name,
                         text,
                         ts,
+                        attachment: attachment.as_ref(),
                     }
                     .frame();
                     hub.send_to_room(&room, &frame, None);
-                    store.save_message("room", room, name, text, ts);
+                    store.save_message("room", room, name, text, ts, attachment.as_ref());
                 }
 
                 Chat::Dm(peer) => {
@@ -394,6 +411,7 @@ async fn handle(
                         from: name,
                         text,
                         ts,
+                        attachment: attachment.as_ref(),
                     }
                     .frame();
                     hub.send_to_user(&peer, &to_peer);
@@ -403,11 +421,19 @@ async fn handle(
                             from: name,
                             text,
                             ts,
+                            attachment: attachment.as_ref(),
                         }
                         .frame();
                         hub.send_to_user(name, &to_me);
                     }
-                    store.save_message("dm", dm_key(name, &peer), name, text, ts);
+                    store.save_message(
+                        "dm",
+                        dm_key(name, &peer),
+                        name,
+                        text,
+                        ts,
+                        attachment.as_ref(),
+                    );
                 }
             }
         }
