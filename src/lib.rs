@@ -167,6 +167,47 @@ async fn api_verify(
     }))
 }
 
+#[derive(serde::Serialize)]
+struct EmojiJson {
+    emoji: &'static str,
+    name: &'static str,
+    shortcode: Option<&'static str>,
+    group: &'static str,
+}
+
+static EMOJIS_JSON: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+fn get_emojis_json() -> &'static str {
+    EMOJIS_JSON.get_or_init(|| {
+        let list: Vec<EmojiJson> = emojis::iter()
+            .map(|e| EmojiJson {
+                emoji: e.as_str(),
+                name: e.name(),
+                shortcode: e.shortcode(),
+                group: match e.group() {
+                    emojis::Group::SmileysAndEmotion => "smileys",
+                    emojis::Group::PeopleAndBody => "people",
+                    emojis::Group::AnimalsAndNature => "nature",
+                    emojis::Group::FoodAndDrink => "food",
+                    emojis::Group::TravelAndPlaces => "travel",
+                    emojis::Group::Activities => "activities",
+                    emojis::Group::Objects => "objects",
+                    emojis::Group::Symbols => "symbols",
+                    emojis::Group::Flags => "flags",
+                },
+            })
+            .collect();
+        serde_json::to_string(&list).unwrap_or_else(|_| "[]".to_string())
+    })
+}
+
+async fn api_emojis() -> HttpResponse {
+    HttpResponse::Ok()
+        .content_type("application/json")
+        .insert_header(("Cache-Control", "public, max-age=86400"))
+        .body(get_emojis_json())
+}
+
 async fn chat_ws(
     req: HttpRequest,
     body: web::Payload,
@@ -227,6 +268,7 @@ pub async fn create_server(listener: TcpListener, db_path: PathBuf) -> io::Resul
             .route("/api/auth/register", web::post().to(api_register))
             .route("/api/auth/login", web::post().to(api_login))
             .route("/api/auth/verify", web::post().to(api_verify))
+            .route("/api/emojis", web::get().to(api_emojis))
             .route("/ws", web::get().to(chat_ws))
             .route("/", web::get().to(index));
 
@@ -237,4 +279,24 @@ pub async fn create_server(listener: TcpListener, db_path: PathBuf) -> io::Resul
     })
     .listen(listener)?
     .run())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_emojis_iter_json() {
+        let json = get_emojis_json();
+        assert!(json.len() > 10000);
+        assert!(json.contains("smileys"));
+        assert!(json.contains("people"));
+        assert!(json.contains("nature"));
+        assert!(json.contains("food"));
+        assert!(json.contains("travel"));
+        assert!(json.contains("activities"));
+        assert!(json.contains("objects"));
+        assert!(json.contains("symbols"));
+        assert!(json.contains("flags"));
+    }
 }

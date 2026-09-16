@@ -27,6 +27,7 @@ tokio = { version = "1.53.1", features = ["rt", "macros", "sync", "time", "fs", 
 turso = "0.7.2"
 sha2 = "0.10"
 hex = "0.4"
+emojis = { version = "0.9", features = ["serde"] }
 
 [dev-dependencies]
 tempfile = "3"

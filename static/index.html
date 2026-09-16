@@ -100,10 +100,11 @@
         </div>
 
         <!-- Auth Form (Sign In / Create Account) -->
-        <div id="auth-box" class="card bg-base-100 w-full shadow-xl">
+        <div id="auth-box" class="aura aura-rainbow aura-sm w-full duration-3000">
+          <div class="card bg-base-100 w-full shadow-xl">
           <div class="card-body p-5 gap-3">
             <!-- Auth Mode Tabs -->
-            <div class="tabs tabs-boxed grid grid-cols-2 bg-base-200 p-1">
+            <div class="tabs tabs-boxed ">
               <button type="button" id="tab-auth-login" class="tab tab-active font-semibold text-xs">Sign In</button>
               <button type="button" id="tab-auth-register" class="tab font-semibold text-xs">Create Account</button>
             </div>
@@ -170,6 +171,7 @@
                 </button>
               </div>
             </form>
+          </div>
           </div>
         </div>
       </div>
@@ -253,12 +255,16 @@
               </div>
               <!-- Categories -->
               <div id="emoji-tabs" class="flex gap-1 overflow-x-auto text-xs py-0.5 no-scrollbar">
-                <button type="button" class="btn btn-xs btn-ghost btn-active" data-cat="all">All</button>
-                <button type="button" class="btn btn-xs btn-ghost" data-cat="smileys">😊</button>
-                <button type="button" class="btn btn-xs btn-ghost" data-cat="gestures">👍</button>
-                <button type="button" class="btn btn-xs btn-ghost" data-cat="hearts">❤️</button>
-                <button type="button" class="btn btn-xs btn-ghost" data-cat="nature">🌲</button>
-                <button type="button" class="btn btn-xs btn-ghost" data-cat="objects">🎉</button>
+                <button type="button" class="btn btn-xs btn-ghost btn-active" data-cat="all" title="All Emojis">All</button>
+                <button type="button" class="btn btn-xs btn-ghost" data-cat="smileys" title="Smileys & Emotion">😊</button>
+                <button type="button" class="btn btn-xs btn-ghost" data-cat="people" title="People & Body">👋</button>
+                <button type="button" class="btn btn-xs btn-ghost" data-cat="nature" title="Animals & Nature">🌲</button>
+                <button type="button" class="btn btn-xs btn-ghost" data-cat="food" title="Food & Drink">🍔</button>
+                <button type="button" class="btn btn-xs btn-ghost" data-cat="travel" title="Travel & Places">🚀</button>
+                <button type="button" class="btn btn-xs btn-ghost" data-cat="activities" title="Activities">🎉</button>
+                <button type="button" class="btn btn-xs btn-ghost" data-cat="objects" title="Objects">💡</button>
+                <button type="button" class="btn btn-xs btn-ghost" data-cat="symbols" title="Symbols">❤️</button>
+                <button type="button" class="btn btn-xs btn-ghost" data-cat="flags" title="Flags">🚩</button>
               </div>
               <div id="emoji-grid" class="grid grid-cols-8 gap-1 max-h-48 overflow-y-auto p-1"></div>
             </div>
@@ -1058,13 +1064,16 @@
           send({ type: "get_room_details", room: chat.id });
         }
 
-        $("composer-input").disabled = false;
-        $("composer-send").disabled = false;
-        $("btn-attach").disabled = false;
-        $("composer-input").placeholder =
-          chat.kind === "room" ? `Message #${chat.id}` : `Message @${chat.id}`;
+        if (typeof ChatComposer !== "undefined") {
+          ChatComposer.setActiveChat(chat);
+        } else {
+          $("composer-input").disabled = false;
+          $("composer-send").disabled = false;
+          $("btn-attach").disabled = false;
+          $("composer-input").placeholder =
+            chat.kind === "room" ? (chat.id === "general" ? "Message the group…" : `Message #${chat.id}…`) : `Message @${chat.id}…`;
+        }
         $("drawer").checked = false;
-        $("composer-input").focus();
         render();
       }
 
@@ -1077,9 +1086,13 @@
         state.joined.delete(room);
         if (sameChat(state.active, { kind: "room", id: room })) {
           state.active = null;
-          $("composer-input").disabled = true;
-          $("composer-send").disabled = true;
-          $("btn-attach").disabled = true;
+          if (typeof ChatComposer !== "undefined") {
+            ChatComposer.setActiveChat(null);
+          } else {
+            $("composer-input").disabled = true;
+            $("composer-send").disabled = true;
+            $("btn-attach").disabled = true;
+          }
         }
         render();
       }
@@ -1332,10 +1345,10 @@
             mine ? "You" : `@${m.from}`,
             h("time", { class: "text-xs opacity-50 ml-1" }, timeFmt.format(date))),
           h("div", {
-            class: `chat-bubble max-w-[min(75%,36rem)] whitespace-pre-wrap break-words ${mine ? "chat-bubble-primary" : "chat-bubble-incoming"}`,
+            class: `chat-bubble max-w-[min(75%,36rem)] break-words ${mine ? "chat-bubble-primary" : "chat-bubble-incoming"}`,
           },
             m.attachment ? attachmentNode(m.attachment) : null,
-            m.text ? h("div", { class: m.attachment ? "pt-1" : "" }, m.text) : null),
+            m.text ? h("div", { class: m.attachment ? "pt-1" : "" }, renderRichText(m.text)) : null),
         ));
         return nodes;
       }
@@ -1826,22 +1839,1605 @@
         }
       });
 
-      $("composer").addEventListener("submit", (e) => {
-        e.preventDefault();
-        const input = $("composer-input");
-        const text = input.value.trim();
-        if (!text || !state.active) return;
-        stopTyping();
-        send({ type: "send", chat: state.active, text });
-        input.value = "";
-      });
+      // ==========================================
+      // ---------- COMPOSER & RICH TEXT MODULE ----------
+      // ==========================================
 
-      $("composer-input").addEventListener("input", (e) => {
-        if (e.target.value.trim()) startTyping();
-        else stopTyping();
-      });
+      /**
+       * Safe DOM parser for markdown formatting and @mentions without innerHTML.
+       */
+      function renderRichText(text) {
+        if (!text) return null;
 
-      $("composer-input").addEventListener("blur", stopTyping);
+        const container = h("div", { class: "rich-text-content leading-relaxed" });
+
+        // Split into code block tokens vs non-code tokens
+        const codeBlockRegex = /```([a-zA-Z0-9_-]*)\n([\s\S]*?)\n```|```([\s\S]*?)```/g;
+        let lastIndex = 0;
+        let match;
+
+        while ((match = codeBlockRegex.exec(text)) !== null) {
+          if (match.index > lastIndex) {
+            container.append(...renderTextAndSpans(text.slice(lastIndex, match.index)));
+          }
+          const codeContent = match[2] !== undefined ? match[2] : match[3];
+          container.append(
+            h("pre", { class: "my-1.5 overflow-x-auto rounded-xl bg-base-300/80 p-2.5 font-mono text-xs border border-base-content/10 shadow-xs" },
+              h("code", {}, codeContent))
+          );
+          lastIndex = match.index + match[0].length;
+        }
+
+        if (lastIndex < text.length) {
+          container.append(...renderTextAndSpans(text.slice(lastIndex)));
+        }
+
+        return container;
+      }
+
+      function renderTextAndSpans(segment) {
+        const nodes = [];
+        const lines = segment.split("\n");
+
+        let inBulletList = false;
+        let bulletListEl = null;
+        let inNumList = false;
+        let numListEl = null;
+
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i];
+
+          // Check bullet list: "- " or "* "
+          const bMatch = line.match(/^(\s*)[-*]\s+(.+)$/);
+          if (bMatch) {
+            if (!inBulletList) {
+              inBulletList = true;
+              bulletListEl = h("ul", { class: "list-disc list-inside space-y-0.5 my-1 pl-1" });
+              nodes.push(bulletListEl);
+            }
+            bulletListEl.append(h("li", { class: "text-sm" }, ...renderInlineTokens(bMatch[2])));
+            continue;
+          } else {
+            inBulletList = false;
+            bulletListEl = null;
+          }
+
+          // Check numbered list: "1. "
+          const nMatch = line.match(/^(\s*)\d+\.\s+(.+)$/);
+          if (nMatch) {
+            if (!inNumList) {
+              inNumList = true;
+              numListEl = h("ol", { class: "list-decimal list-inside space-y-0.5 my-1 pl-1" });
+              nodes.push(numListEl);
+            }
+            numListEl.append(h("li", { class: "text-sm" }, ...renderInlineTokens(nMatch[2])));
+            continue;
+          } else {
+            inNumList = false;
+            numListEl = null;
+          }
+
+          // Normal line
+          const lineSpan = h("span", {}, ...renderInlineTokens(line));
+          nodes.push(lineSpan);
+          if (i < lines.length - 1) {
+            nodes.push(document.createElement("br"));
+          }
+        }
+
+        return nodes;
+      }
+
+      function renderInlineTokens(text) {
+        const nodes = [];
+        // Match @mentions, `inline code`, **bold**, *italic*
+        const tokenRegex = /(@[a-zA-Z0-9_-]{1,24})|(`[^`\n]+`)|(\*\*[^*]+\*\*)|(\*[^*]+\*)|(_[^_]+_)/g;
+        let lastIndex = 0;
+        let match;
+
+        while ((match = tokenRegex.exec(text)) !== null) {
+          if (match.index > lastIndex) {
+            nodes.push(document.createTextNode(text.slice(lastIndex, match.index)));
+          }
+
+          const full = match[0];
+          if (match[1]) {
+            // @mention pill
+            const username = match[1].slice(1);
+            const pill = h("span", {
+              class: "mention-pill",
+              title: `Mentioned @${username} (click to message)`,
+              onclick: (e) => {
+                e.stopPropagation();
+                openChat({ kind: "dm", id: username });
+              },
+            }, `@${username}`);
+            nodes.push(pill);
+          } else if (match[2]) {
+            // `code`
+            nodes.push(h("code", {}, full.slice(1, -1)));
+          } else if (match[3]) {
+            // **bold**
+            nodes.push(h("strong", { class: "font-bold" }, full.slice(2, -2)));
+          } else if (match[4]) {
+            // *italic*
+            nodes.push(h("em", { class: "italic" }, full.slice(1, -1)));
+          } else if (match[5]) {
+            // _italic_
+            nodes.push(h("em", { class: "italic" }, full.slice(1, -1)));
+          }
+
+          lastIndex = match.index + full.length;
+        }
+
+        if (lastIndex < text.length) {
+          nodes.push(document.createTextNode(text.slice(lastIndex)));
+        }
+
+        return nodes;
+      }
+
+      /**
+       * AttachmentPreview Component
+       * Renders the strip of attached files above or inside the composer input.
+       */
+      const AttachmentPreview = {
+        render(attachments, onRemove) {
+          const container = $("composer-attachments");
+          if (!container) return;
+          if (!attachments || attachments.length === 0) {
+            container.replaceChildren();
+            return;
+          }
+          const nodes = attachments.map((att) => {
+            const isImg = att.mime.startsWith("image/") && att.previewUrl;
+            return h("div", {
+              class: "group relative flex items-center gap-2 p-1.5 pr-2.5 bg-base-300/80 hover:bg-base-300 rounded-xl border border-base-content/10 shadow-xs transition-all max-w-[240px]",
+              title: `${att.name} (${formatBytes(att.size)})`,
+            },
+              isImg
+                ? h("img", {
+                    src: att.previewUrl,
+                    alt: att.name,
+                    class: "w-10 h-10 object-cover rounded-lg border border-base-content/10 shrink-0",
+                  })
+                : h("div", { class: "w-10 h-10 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0 text-lg font-bold" }, "📄"),
+              h("div", { class: "min-w-0 flex-1" },
+                h("div", { class: "text-xs font-medium truncate leading-tight" }, att.name),
+                h("div", { class: "text-[10px] text-base-content/60" }, formatBytes(att.size))),
+              h("button", {
+                type: "button",
+                class: "btn btn-circle btn-ghost btn-xs text-base-content/60 hover:text-error hover:bg-base-100/50 -mr-1",
+                title: "Remove file",
+                "aria-label": `Remove ${att.name}`,
+                onclick: (e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onRemove(att.id);
+                },
+              }, "✕")
+            );
+          });
+          container.replaceChildren(...nodes);
+        },
+      };
+
+      /**
+       * FormattingToolbar Component
+       * Floating micro-toolbar appearing when user selects text inside the textarea.
+       */
+      const FormattingToolbar = {
+        active: false,
+        init(textarea, onApply) {
+          const toolbar = $("composer-formatting-toolbar");
+          if (!toolbar) return;
+
+          toolbar.querySelectorAll("[data-format]").forEach((btn) => {
+            btn.addEventListener("mousedown", (e) => {
+              e.preventDefault(); // keep textarea selection intact
+              const format = btn.getAttribute("data-format");
+              onApply(format);
+            });
+          });
+
+          const updateVisibility = () => {
+            if (document.activeElement !== textarea) {
+              FormattingToolbar.hide();
+              return;
+            }
+            const start = textarea.selectionStart;
+            const end = textarea.selectionEnd;
+            if (start !== end && textarea.value.slice(start, end).trim().length > 0) {
+              FormattingToolbar.show();
+            } else {
+              FormattingToolbar.hide();
+            }
+          };
+
+          textarea.addEventListener("select", updateVisibility);
+          textarea.addEventListener("mouseup", updateVisibility);
+          textarea.addEventListener("keyup", (e) => {
+            if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Shift"].includes(e.key)) {
+              updateVisibility();
+            }
+          });
+          textarea.addEventListener("blur", () => {
+            setTimeout(updateVisibility, 150);
+          });
+        },
+
+        show() {
+          $("composer-formatting-toolbar")?.classList.remove("hidden");
+          this.active = true;
+        },
+
+        hide() {
+          $("composer-formatting-toolbar")?.classList.add("hidden");
+          this.active = false;
+        },
+
+        apply(textarea, type) {
+          const start = textarea.selectionStart;
+          const end = textarea.selectionEnd;
+          const val = textarea.value;
+          const selected = val.slice(start, end);
+          if (!selected) return;
+
+          let replacement = "";
+          let newStart = start;
+          let newEnd = end;
+
+          switch (type) {
+            case "bold":
+              replacement = `**${selected}**`;
+              newStart = start + 2;
+              newEnd = end + 2;
+              break;
+            case "italic":
+              replacement = `*${selected}*`;
+              newStart = start + 1;
+              newEnd = end + 1;
+              break;
+            case "code":
+              replacement = `\`${selected}\``;
+              newStart = start + 1;
+              newEnd = end + 1;
+              break;
+            case "codeblock":
+              replacement = `\`\`\`\n${selected}\n\`\`\``;
+              newStart = start + 4;
+              newEnd = end + 4;
+              break;
+            case "bullet": {
+              const lines = selected.split("\n");
+              replacement = lines.map((l) => (l.startsWith("- ") ? l : `- ${l}`)).join("\n");
+              newStart = start;
+              newEnd = start + replacement.length;
+              break;
+            }
+            case "number": {
+              const lines = selected.split("\n");
+              replacement = lines.map((l, i) => `${i + 1}. ${l.replace(/^\d+\.\s*/, "")}`).join("\n");
+              newStart = start;
+              newEnd = start + replacement.length;
+              break;
+            }
+            default:
+              return;
+          }
+
+          textarea.value = val.slice(0, start) + replacement + val.slice(end);
+          textarea.focus();
+          textarea.setSelectionRange(newStart, newEnd);
+          FormattingToolbar.hide();
+        },
+      };
+
+      /**
+       * MentionMenu Component
+       * Triggered when user types '@' or edits '@query'.
+       * Provides full keyboard navigation (ArrowUp/Down, Enter/Tab, Esc).
+       */
+      const MentionMenu = {
+        isOpen: false,
+        items: [],
+        selectedIndex: 0,
+        query: "",
+        mentionStart: -1,
+
+        init(textarea, onSelect) {
+          this.textarea = textarea;
+          this.onSelect = onSelect;
+
+          textarea.addEventListener("input", () => this.checkTrigger());
+          textarea.addEventListener("keydown", (e) => this.handleKey(e));
+          textarea.addEventListener("click", () => this.checkTrigger());
+
+          document.addEventListener("click", (e) => {
+            if (this.isOpen && !$("composer-mention-menu")?.contains(e.target) && e.target !== textarea) {
+              this.close();
+            }
+          });
+        },
+
+        getAvailableMembers() {
+          const chat = state.active;
+          if (!chat) return [];
+
+          const membersMap = new Map();
+
+          if (chat.kind === "room") {
+            if (state.activeRoomDetails?.room === chat.id && state.activeRoomDetails.members) {
+              for (const m of state.activeRoomDetails.members) {
+                membersMap.set(m.username, {
+                  username: m.username,
+                  role: m.role,
+                  isOnline: state.users.includes(m.username),
+                  avatarUrl: avatarUrl(m.username),
+                });
+              }
+            }
+            for (const u of state.users) {
+              if (!membersMap.has(u)) {
+                membersMap.set(u, {
+                  username: u,
+                  role: "member",
+                  isOnline: true,
+                  avatarUrl: avatarUrl(u),
+                });
+              }
+            }
+          } else if (chat.kind === "dm") {
+            membersMap.set(chat.id, {
+              username: chat.id,
+              role: "dm",
+              isOnline: state.users.includes(chat.id),
+              avatarUrl: avatarUrl(chat.id),
+            });
+            if (state.me) {
+              membersMap.set(state.me, {
+                username: state.me,
+                role: "you",
+                isOnline: true,
+                avatarUrl: avatarUrl(state.me),
+              });
+            }
+          }
+
+          return Array.from(membersMap.values()).sort((a, b) => {
+            if (a.isOnline !== b.isOnline) return a.isOnline ? -1 : 1;
+            return a.username.localeCompare(b.username);
+          });
+        },
+
+        checkTrigger() {
+          const cursorPos = this.textarea.selectionStart;
+          const textBefore = this.textarea.value.slice(0, cursorPos);
+          const match = textBefore.match(/(?:^|\s)@([a-zA-Z0-9_-]*)$/);
+
+          if (match) {
+            this.query = match[1].toLowerCase();
+            this.mentionStart = cursorPos - match[1].length - 1;
+            const allMembers = this.getAvailableMembers();
+            this.items = allMembers.filter((m) =>
+              m.username.toLowerCase().includes(this.query)
+            );
+
+            if (this.items.length > 0) {
+              this.selectedIndex = Math.min(this.selectedIndex, this.items.length - 1);
+              this.open();
+              this.render();
+            } else {
+              this.close();
+            }
+          } else {
+            this.close();
+          }
+        },
+
+        handleKey(e) {
+          if (!this.isOpen || this.items.length === 0) return false;
+
+          if (e.key === "ArrowDown") {
+            e.preventDefault();
+            this.selectedIndex = (this.selectedIndex + 1) % this.items.length;
+            this.render();
+            this.scrollSelectedIntoView();
+            return true;
+          }
+          if (e.key === "ArrowUp") {
+            e.preventDefault();
+            this.selectedIndex = (this.selectedIndex - 1 + this.items.length) % this.items.length;
+            this.render();
+            this.scrollSelectedIntoView();
+            return true;
+          }
+          if (e.key === "Enter" || e.key === "Tab") {
+            e.preventDefault();
+            const selected = this.items[this.selectedIndex];
+            if (selected) this.selectMember(selected);
+            return true;
+          }
+          if (e.key === "Escape") {
+            e.preventDefault();
+            this.close();
+            return true;
+          }
+          return false;
+        },
+
+        scrollSelectedIntoView() {
+          const list = $("mention-menu-list");
+          const active = list?.children[this.selectedIndex];
+          if (active) active.scrollIntoView({ block: "nearest" });
+        },
+
+        selectMember(member) {
+          const val = this.textarea.value;
+          const before = val.slice(0, this.mentionStart);
+          const after = val.slice(this.textarea.selectionStart);
+          const insertion = `@${member.username} `;
+          this.textarea.value = before + insertion + after;
+          const newPos = before.length + insertion.length;
+          this.textarea.setSelectionRange(newPos, newPos);
+          this.close();
+          this.textarea.focus();
+          this.onSelect(member);
+        },
+
+        open() {
+          this.isOpen = true;
+          $("composer-mention-menu")?.classList.remove("hidden");
+        },
+
+        close() {
+          this.isOpen = false;
+          $("composer-mention-menu")?.classList.add("hidden");
+        },
+
+        render() {
+          const list = $("mention-menu-list");
+          if (!list) return;
+
+          const rows = this.items.map((m, idx) => {
+            const isSelected = idx === this.selectedIndex;
+            const isCreator = m.role === "creator";
+            const isAdmin = m.role === "admin";
+            const isMe = m.username === state.me;
+
+            return h("div", {
+              class: `flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl cursor-pointer transition-colors ${
+                isSelected
+                  ? "bg-primary text-primary-content font-medium shadow-xs"
+                  : "hover:bg-base-200 text-base-content"
+              }`,
+              role: "option",
+              "aria-selected": isSelected ? "true" : "false",
+              onmouseenter: () => {
+                this.selectedIndex = idx;
+                this.render();
+              },
+              onclick: (e) => {
+                e.preventDefault();
+                this.selectMember(m);
+              },
+            },
+              avatar(m.avatarUrl, "w-7", m.isOnline),
+              h("div", { class: "min-w-0 flex-1 flex items-center justify-between gap-1" },
+                h("div", { class: "flex items-center gap-1.5 truncate" },
+                  h("span", { class: "text-xs font-semibold truncate" }, `@${m.username}`),
+                  isMe ? h("span", { class: `badge badge-xs ${isSelected ? "badge-ghost bg-primary-content/20 text-primary-content" : "badge-ghost"}` }, "you") : null),
+                h("div", { class: "flex items-center gap-1 shrink-0" },
+                  isCreator ? h("span", { class: "badge badge-xs badge-warning font-bold scale-90" }, "👑")
+                  : isAdmin ? h("span", { class: "badge badge-xs badge-primary font-bold scale-90" }, "🛡️")
+                  : null,
+                  h("span", {
+                    class: `w-2 h-2 rounded-full ${m.isOnline ? "bg-success" : "bg-base-content/30"}`,
+                    title: m.isOnline ? "Online" : "Offline",
+                  }))
+              )
+            );
+          });
+
+          list.replaceChildren(...rows);
+        },
+      };
+
+      /**
+       * EmojiPicker Component
+       * Categorized emoji picker with offline dataset, local Rust backend sync, and shortcode search.
+       */
+      const EmojiPicker = {
+        isOpen: false,
+        category: "all",
+        searchQuery: "",
+        textarea: null,
+        allEmojis: [],
+
+        // Embedded offline fallback dataset so the picker functions 100% offline instantly
+        data: {
+          smileys: [
+            { emoji: "😀", name: "grinning face", shortcode: "grinning" },
+            { emoji: "😃", name: "grinning face with big eyes", shortcode: "smiley" },
+            { emoji: "😄", name: "grinning face with smiling eyes", shortcode: "smile" },
+            { emoji: "😁", name: "beaming face with smiling eyes", shortcode: "grin" },
+            { emoji: "😆", name: "grinning squinting face", shortcode: "laughing" },
+            { emoji: "😅", name: "grinning face with sweat", shortcode: "sweat_smile" },
+            { emoji: "🤣", name: "rolling on the floor laughing", shortcode: "rofl" },
+            { emoji: "😂", name: "face with tears of joy", shortcode: "joy" },
+            { emoji: "🙂", name: "slightly smiling face", shortcode: "slightly_smiling_face" },
+            { emoji: "🙃", name: "upside-down face", shortcode: "upside_down_face" },
+            { emoji: "😉", name: "winking face", shortcode: "wink" },
+            { emoji: "😊", name: "smiling face with smiling eyes", shortcode: "blush" },
+            { emoji: "😇", name: "smiling face with halo", shortcode: "innocent" },
+            { emoji: "🥰", name: "smiling face with hearts", shortcode: "smiling_face_with_three_hearts" },
+            { emoji: "😍", name: "smiling face with heart-eyes", shortcode: "heart_eyes" },
+            { emoji: "🤩", name: "star-struck", shortcode: "star_struck" },
+            { emoji: "😘", name: "face blowing a kiss", shortcode: "kissing_heart" },
+            { emoji: "😗", name: "kissing face", shortcode: "kissing" },
+            { emoji: "😚", name: "kissing face with closed eyes", shortcode: "kissing_closed_eyes" },
+            { emoji: "😋", name: "face savoring food", shortcode: "yum" },
+            { emoji: "😛", name: "face with tongue", shortcode: "stuck_out_tongue" },
+            { emoji: "😜", name: "winking face with tongue", shortcode: "stuck_out_tongue_winking_eye" },
+            { emoji: "🤪", name: "zany face", shortcode: "zany_face" },
+            { emoji: "😝", name: "squinting face with tongue", shortcode: "stuck_out_tongue_closed_eyes" },
+            { emoji: "🤑", name: "money-mouth face", shortcode: "money_mouth_face" },
+            { emoji: "🤗", name: "smiling face with open hands", shortcode: "hugs" },
+            { emoji: "🤭", name: "face with hand over mouth", shortcode: "hand_over_mouth" },
+            { emoji: "🤫", name: "shushing face", shortcode: "shushing_face" },
+            { emoji: "🤔", name: "thinking face", shortcode: "thinking" },
+            { emoji: "🤐", name: "zipper-mouth face", shortcode: "zipper_mouth_face" },
+            { emoji: "🤨", name: "face with raised eyebrow", shortcode: "raised_eyebrow" },
+            { emoji: "😐", name: "neutral face", shortcode: "neutral_face" },
+            { emoji: "😑", name: "expressionless face", shortcode: "expressionless" },
+            { emoji: "😶", name: "face without mouth", shortcode: "no_mouth" },
+            { emoji: "😏", name: "smirking face", shortcode: "smirk" },
+            { emoji: "😒", name: "unamused face", shortcode: "unamused" },
+            { emoji: "🙄", name: "face with rolling eyes", shortcode: "roll_eyes" },
+            { emoji: "😬", name: "grimacing face", shortcode: "grimacing" },
+            { emoji: "🤥", name: "lying face", shortcode: "lying_face" },
+            { emoji: "😌", name: "relieved face", shortcode: "relieved" },
+            { emoji: "😔", name: "pensive face", shortcode: "pensive" },
+            { emoji: "😪", name: "sleepy face", shortcode: "sleepy" },
+            { emoji: "🤤", name: "drooling face", shortcode: "drooling_face" },
+            { emoji: "😴", name: "sleeping face", shortcode: "sleeping" },
+            { emoji: "😷", name: "face with medical mask", shortcode: "mask" },
+            { emoji: "🤒", name: "face with thermometer", shortcode: "face_with_thermometer" },
+            { emoji: "🤕", name: "face with head-bandage", shortcode: "face_with_head_bandage" },
+            { emoji: "🤢", name: "nauseated face", shortcode: "nauseated_face" },
+            { emoji: "🤮", name: "face vomiting", shortcode: "vomiting_face" },
+            { emoji: "🤧", name: "sneezing face", shortcode: "sneezing_face" },
+            { emoji: "🥵", name: "hot face", shortcode: "hot_face" },
+            { emoji: "🥶", name: "cold face", shortcode: "cold_face" },
+            { emoji: "🥴", name: "woozy face", shortcode: "woozy_face" },
+            { emoji: "😵", name: "dizzy face", shortcode: "dizzy_face" },
+            { emoji: "🤯", name: "exploding head", shortcode: "exploding_head" },
+            { emoji: "🤠", name: "cowboy hat face", shortcode: "cowboy_hat_face" },
+            { emoji: "🥳", name: "partying face", shortcode: "partying_face" },
+            { emoji: "😎", name: "smiling face with sunglasses", shortcode: "sunglasses" },
+            { emoji: "🤓", name: "nerd face", shortcode: "nerd_face" },
+            { emoji: "🧐", name: "face with monocle", shortcode: "monocle_face" },
+            { emoji: "😕", name: "confused face", shortcode: "confused" },
+            { emoji: "😟", name: "worried face", shortcode: "worried" },
+            { emoji: "🙁", name: "slightly frowning face", shortcode: "slightly_frowning_face" },
+            { emoji: "☹️", name: "frowning face", shortcode: "frowning_face" },
+            { emoji: "😮", name: "face with open mouth", shortcode: "open_mouth" },
+            { emoji: "😯", name: "hushed face", shortcode: "hushed" },
+            { emoji: "😲", name: "astonished face", shortcode: "astonished" },
+            { emoji: "😳", name: "flushed face", shortcode: "flushed" },
+            { emoji: "🥺", name: "pleading face", shortcode: "pleading_face" },
+            { emoji: "😦", name: "frowning face with open mouth", shortcode: "frowning" },
+            { emoji: "😧", name: "anguished face", shortcode: "anguished" },
+            { emoji: "😨", name: "fearful face", shortcode: "fearful" },
+            { emoji: "😰", name: "anxious face with sweat", shortcode: "cold_sweat" },
+            { emoji: "😥", name: "sad but relieved face", shortcode: "disappointed_relieved" },
+            { emoji: "😢", name: "crying face", shortcode: "cry" },
+            { emoji: "😭", name: "loudly crying face", shortcode: "sob" },
+            { emoji: "😱", name: "face screaming in fear", shortcode: "scream" },
+            { emoji: "😖", name: "confounded face", shortcode: "confounded" },
+            { emoji: "😣", name: "persevering face", shortcode: "persevere" },
+            { emoji: "😞", name: "disappointed face", shortcode: "disappointed" },
+            { emoji: "😓", name: "downcast face with sweat", shortcode: "sweat" },
+            { emoji: "😩", name: "weary face", shortcode: "weary" },
+            { emoji: "😫", name: "tired face", shortcode: "tired_face" },
+            { emoji: "🥱", name: "yawning face", shortcode: "yawning_face" },
+            { emoji: "😤", name: "face with steam from nose", shortcode: "triumph" },
+            { emoji: "😡", name: "enraged face", shortcode: "rage" },
+            { emoji: "😠", name: "angry face", shortcode: "angry" },
+            { emoji: "🤬", name: "face with symbols on mouth", shortcode: "cursing_face" },
+            { emoji: "😈", name: "smiling face with horns", shortcode: "smiling_imp" },
+            { emoji: "👿", name: "angry face with horns", shortcode: "imp" },
+            { emoji: "💀", name: "skull", shortcode: "skull" },
+            { emoji: "💩", name: "pile of poo", shortcode: "poop" },
+            { emoji: "🤡", name: "clown face", shortcode: "clown_face" },
+            { emoji: "👻", name: "ghost", shortcode: "ghost" },
+            { emoji: "👽", name: "alien", shortcode: "alien" },
+            { emoji: "🤖", name: "robot", shortcode: "robot" },
+          ],
+          people: [
+            { emoji: "👋", name: "waving hand", shortcode: "wave" },
+            { emoji: "🤚", name: "raised back of hand", shortcode: "raised_back_of_hand" },
+            { emoji: "🖐️", name: "hand with fingers splayed", shortcode: "raised_hand_with_fingers_splayed" },
+            { emoji: "✋", name: "raised hand", shortcode: "hand" },
+            { emoji: "🖖", name: "vulcan salute", shortcode: "vulcan_salute" },
+            { emoji: "👌", name: "OK hand", shortcode: "ok_hand" },
+            { emoji: "🤌", name: "pinched fingers", shortcode: "pinched_fingers" },
+            { emoji: "🤏", name: "pinching hand", shortcode: "pinching_hand" },
+            { emoji: "✌️", name: "victory hand", shortcode: "v" },
+            { emoji: "🤞", name: "crossed fingers", shortcode: "crossed_fingers" },
+            { emoji: "🤟", name: "love-you gesture", shortcode: "love_you_gesture" },
+            { emoji: "🤘", name: "sign of the horns", shortcode: "metal" },
+            { emoji: "🤙", name: "call me hand", shortcode: "call_me_hand" },
+            { emoji: "👈", name: "backhand index pointing left", shortcode: "point_left" },
+            { emoji: "👉", name: "backhand index pointing right", shortcode: "point_right" },
+            { emoji: "👆", name: "backhand index pointing up", shortcode: "point_up_2" },
+            { emoji: "🖕", name: "middle finger", shortcode: "middle_finger" },
+            { emoji: "👇", name: "backhand index pointing down", shortcode: "point_down" },
+            { emoji: "☝️", name: "index pointing up", shortcode: "point_up" },
+            { emoji: "👍", name: "thumbs up", shortcode: "+1" },
+            { emoji: "👎", name: "thumbs down", shortcode: "-1" },
+            { emoji: "✊", name: "raised fist", shortcode: "fist" },
+            { emoji: "👊", name: "oncoming fist", shortcode: "facepunch" },
+            { emoji: "🤛", name: "left-facing fist", shortcode: "left_facing_fist" },
+            { emoji: "🤜", name: "right-facing fist", shortcode: "right_facing_fist" },
+            { emoji: "👏", name: "clapping hands", shortcode: "clap" },
+            { emoji: "🙌", name: "raising hands", shortcode: "raised_hands" },
+            { emoji: "👐", name: "open hands", shortcode: "open_hands" },
+            { emoji: "🤲", name: "palms up together", shortcode: "palms_up_together" },
+            { emoji: "🤝", name: "handshake", shortcode: "handshake" },
+            { emoji: "🙏", name: "folded hands", shortcode: "pray" },
+            { emoji: "✍️", name: "writing hand", shortcode: "writing_hand" },
+            { emoji: "💅", name: "nail polish", shortcode: "nail_care" },
+            { emoji: "🤳", name: "selfie", shortcode: "selfie" },
+            { emoji: "💪", name: "flexed biceps", shortcode: "muscle" },
+            { emoji: "🦾", name: "mechanical arm", shortcode: "mechanical_arm" },
+            { emoji: "🦿", name: "mechanical leg", shortcode: "mechanical_leg" },
+            { emoji: "🦵", name: "leg", shortcode: "leg" },
+            { emoji: "🦶", name: "foot", shortcode: "foot" },
+            { emoji: "👂", name: "ear", shortcode: "ear" },
+            { emoji: "👃", name: "nose", shortcode: "nose" },
+            { emoji: "🧠", name: "brain", shortcode: "brain" },
+            { emoji: "🫀", name: "anatomical heart", shortcode: "anatomical_heart" },
+            { emoji: "🫁", name: "lungs", shortcode: "lungs" },
+            { emoji: "👀", name: "eyes", shortcode: "eyes" },
+            { emoji: "👁️", name: "eye", shortcode: "eye" },
+            { emoji: "👅", name: "tongue", shortcode: "tongue" },
+            { emoji: "👄", name: "mouth", shortcode: "lips" },
+            { emoji: "👶", name: "baby", shortcode: "baby" },
+            { emoji: "🧒", name: "child", shortcode: "child" },
+            { emoji: "👦", name: "boy", shortcode: "boy" },
+            { emoji: "👧", name: "girl", shortcode: "girl" },
+            { emoji: "🧑", name: "person", shortcode: "adult" },
+            { emoji: "👱", name: "person: blond hair", shortcode: "person_with_blond_hair" },
+            { emoji: "👨", name: "man", shortcode: "man" },
+            { emoji: "🧔", name: "person: beard", shortcode: "bearded_person" },
+            { emoji: "👩", name: "woman", shortcode: "woman" },
+            { emoji: "🧓", name: "older person", shortcode: "older_adult" },
+            { emoji: "👴", name: "old man", shortcode: "older_man" },
+            { emoji: "👵", name: "old woman", shortcode: "older_woman" },
+          ],
+          nature: [
+            { emoji: "🐶", name: "dog face", shortcode: "dog" },
+            { emoji: "🐱", name: "cat face", shortcode: "cat" },
+            { emoji: "🐭", name: "mouse face", shortcode: "mouse" },
+            { emoji: "🐹", name: "hamster", shortcode: "hamster" },
+            { emoji: "🐰", name: "rabbit face", shortcode: "rabbit" },
+            { emoji: "🦊", name: "fox", shortcode: "fox_face" },
+            { emoji: "🐻", name: "bear", shortcode: "bear" },
+            { emoji: "🐼", name: "panda", shortcode: "panda_face" },
+            { emoji: "🐨", name: "koala", shortcode: "koala" },
+            { emoji: "🐯", name: "tiger face", shortcode: "tiger" },
+            { emoji: "🦁", name: "lion", shortcode: "lion" },
+            { emoji: "🐮", name: "cow face", shortcode: "cow" },
+            { emoji: "🐷", name: "pig face", shortcode: "pig" },
+            { emoji: "🐽", name: "pig nose", shortcode: "pig_nose" },
+            { emoji: "🐸", name: "frog", shortcode: "frog" },
+            { emoji: "🐵", name: "monkey face", shortcode: "monkey_face" },
+            { emoji: "🐔", name: "chicken", shortcode: "chicken" },
+            { emoji: "🐧", name: "penguin", shortcode: "penguin" },
+            { emoji: "🐦", name: "bird", shortcode: "bird" },
+            { emoji: "🦆", name: "duck", shortcode: "duck" },
+            { emoji: "🦅", name: "eagle", shortcode: "eagle" },
+            { emoji: "🦉", name: "owl", shortcode: "owl" },
+            { emoji: "🦇", name: "bat", shortcode: "bat" },
+            { emoji: "🐺", name: "wolf", shortcode: "wolf" },
+            { emoji: "🐗", name: "boar", shortcode: "boar" },
+            { emoji: "🐴", name: "horse face", shortcode: "horse" },
+            { emoji: "🦄", name: "unicorn", shortcode: "unicorn" },
+            { emoji: "🐝", name: "honeybee", shortcode: "bee" },
+            { emoji: "🐛", name: "bug", shortcode: "bug" },
+            { emoji: "🦋", name: "butterfly", shortcode: "butterfly" },
+            { emoji: "🐌", name: "snail", shortcode: "snail" },
+            { emoji: "🐞", name: "lady beetle", shortcode: "beetle" },
+            { emoji: "🐜", name: "ant", shortcode: "ant" },
+            { emoji: "🦗", name: "cricket", shortcode: "cricket" },
+            { emoji: "🕷️", name: "spider", shortcode: "spider" },
+            { emoji: "🦂", name: "scorpion", shortcode: "scorpion" },
+            { emoji: "🐢", name: "turtle", shortcode: "turtle" },
+            { emoji: "🐍", name: "snake", shortcode: "snake" },
+            { emoji: "🦎", name: "lizard", shortcode: "lizard" },
+            { emoji: "🦖", name: "T-Rex", shortcode: "t-rex" },
+            { emoji: "🐙", name: "octopus", shortcode: "octopus" },
+            { emoji: "🦑", name: "squid", shortcode: "squid" },
+            { emoji: "🦐", name: "shrimp", shortcode: "shrimp" },
+            { emoji: "🦞", name: "lobster", shortcode: "lobster" },
+            { emoji: "🦀", name: "crab", shortcode: "crab" },
+            { emoji: "🐡", name: "blowfish", shortcode: "blowfish" },
+            { emoji: "🐠", name: "tropical fish", shortcode: "tropical_fish" },
+            { emoji: "🐟", name: "fish", shortcode: "fish" },
+            { emoji: "🐬", name: "dolphin", shortcode: "dolphin" },
+            { emoji: "🐳", name: "spouting whale", shortcode: "whale" },
+            { emoji: "🐋", name: "whale", shortcode: "whale2" },
+            { emoji: "🦈", name: "shark", shortcode: "shark" },
+            { emoji: "🐊", name: "crocodile", shortcode: "crocodile" },
+            { emoji: "🌲", name: "evergreen tree", shortcode: "evergreen_tree" },
+            { emoji: "🌳", name: "deciduous tree", shortcode: "deciduous_tree" },
+            { emoji: "🌴", name: "palm tree", shortcode: "palm_tree" },
+            { emoji: "🌱", name: "seedling", shortcode: "seedling" },
+            { emoji: "🌿", name: "herb", shortcode: "herb" },
+            { emoji: "☘️", name: "shamrock", shortcode: "shamrock" },
+            { emoji: "🍀", name: "four leaf clover", shortcode: "four_leaf_clover" },
+            { emoji: "🍃", name: "leaf fluttering in wind", shortcode: "leaves" },
+            { emoji: "🍂", name: "fallen leaf", shortcode: "fallen_leaf" },
+            { emoji: "🍁", name: "maple leaf", shortcode: "maple_leaf" },
+            { emoji: "🍄", name: "mushroom", shortcode: "mushroom" },
+            { emoji: "🌸", name: "cherry blossom", shortcode: "cherry_blossom" },
+            { emoji: "🌹", name: "rose", shortcode: "rose" },
+            { emoji: "🌻", name: "sunflower", shortcode: "sunflower" },
+            { emoji: "🌞", name: "sun with face", shortcode: "sun_with_face" },
+            { emoji: "⭐", name: "star", shortcode: "star" },
+            { emoji: "🌟", name: "glowing star", shortcode: "star2" },
+            { emoji: "🌈", name: "rainbow", shortcode: "rainbow" },
+            { emoji: "⚡", name: "high voltage", shortcode: "zap" },
+            { emoji: "❄️", name: "snowflake", shortcode: "snowflake" },
+            { emoji: "🔥", name: "fire", shortcode: "fire" },
+          ],
+          food: [
+            { emoji: "🍏", name: "green apple", shortcode: "green_apple" },
+            { emoji: "🍎", name: "red apple", shortcode: "apple" },
+            { emoji: "🍐", name: "pear", shortcode: "pear" },
+            { emoji: "🍊", name: "tangerine", shortcode: "tangerine" },
+            { emoji: "🍋", name: "lemon", shortcode: "lemon" },
+            { emoji: "🍌", name: "banana", shortcode: "banana" },
+            { emoji: "🍉", name: "watermelon", shortcode: "watermelon" },
+            { emoji: "🍇", name: "grapes", shortcode: "grapes" },
+            { emoji: "🍓", name: "strawberry", shortcode: "strawberry" },
+            { emoji: "🫐", name: "blueberries", shortcode: "blueberries" },
+            { emoji: "🍈", name: "melon", shortcode: "melon" },
+            { emoji: "🍒", name: "cherries", shortcode: "cherries" },
+            { emoji: "🍑", name: "peach", shortcode: "peach" },
+            { emoji: "🥭", name: "mango", shortcode: "mango" },
+            { emoji: "🍍", name: "pineapple", shortcode: "pineapple" },
+            { emoji: "🥥", name: "coconut", shortcode: "coconut" },
+            { emoji: "🥝", name: "kiwi fruit", shortcode: "kiwi_fruit" },
+            { emoji: "🍅", name: "tomato", shortcode: "tomato" },
+            { emoji: "🥑", name: "avocado", shortcode: "avocado" },
+            { emoji: "🥦", name: "broccoli", shortcode: "broccoli" },
+            { emoji: "🌽", name: "ear of corn", shortcode: "corn" },
+            { emoji: "🥕", name: "carrot", shortcode: "carrot" },
+            { emoji: "🥔", name: "potato", shortcode: "potato" },
+            { emoji: "🍞", name: "bread", shortcode: "bread" },
+            { emoji: "🥐", name: "croissant", shortcode: "croissant" },
+            { emoji: "🥖", name: "baguette bread", shortcode: "baguette_bread" },
+            { emoji: "🧀", name: "cheese wedge", shortcode: "cheese" },
+            { emoji: "🍖", name: "meat on bone", shortcode: "meat_on_bone" },
+            { emoji: "🍗", name: "poultry leg", shortcode: "poultry_leg" },
+            { emoji: "🥩", name: "cut of meat", shortcode: "cut_of_meat" },
+            { emoji: "🥓", name: "bacon", shortcode: "bacon" },
+            { emoji: "🍔", name: "hamburger", shortcode: "hamburger" },
+            { emoji: "🍟", name: "french fries", shortcode: "fries" },
+            { emoji: "🍕", name: "pizza", shortcode: "pizza" },
+            { emoji: "🌭", name: "hot dog", shortcode: "hotdog" },
+            { emoji: "🥪", name: "sandwich", shortcode: "sandwich" },
+            { emoji: "🌮", name: "taco", shortcode: "taco" },
+            { emoji: "🌯", name: "burrito", shortcode: "burrito" },
+            { emoji: "🍜", name: "steaming bowl", shortcode: "ramen" },
+            { emoji: "🍝", name: "spaghetti", shortcode: "spaghetti" },
+            { emoji: "🍣", name: "sushi", shortcode: "sushi" },
+            { emoji: "🍦", name: "soft ice cream", shortcode: "ice_cream" },
+            { emoji: "🍩", name: "doughnut", shortcode: "doughnut" },
+            { emoji: "🍪", name: "cookie", shortcode: "cookie" },
+            { emoji: "🎂", name: "birthday cake", shortcode: "birthday" },
+            { emoji: "🍰", name: "shortcake", shortcode: "cake" },
+            { emoji: "🧁", name: "cupcake", shortcode: "cupcake" },
+            { emoji: "🍫", name: "chocolate bar", shortcode: "chocolate_bar" },
+            { emoji: "🍬", name: "candy", shortcode: "candy" },
+            { emoji: "🍭", name: "lollipop", shortcode: "lollipop" },
+            { emoji: "☕", name: "hot beverage", shortcode: "coffee" },
+            { emoji: "🍵", name: "teacup without handle", shortcode: "tea" },
+            { emoji: "🧃", name: "beverage box", shortcode: "beverage_box" },
+            { emoji: "🥤", name: "cup with straw", shortcode: "cup_with_straw" },
+            { emoji: "🧋", name: "bubble tea", shortcode: "bubble_tea" },
+            { emoji: "🍺", name: "beer mug", shortcode: "beer" },
+            { emoji: "🍻", name: "clinking beer mugs", shortcode: "beers" },
+            { emoji: "🥂", name: "clinking glasses", shortcode: "clinking_glasses" },
+            { emoji: "🍷", name: "wine glass", shortcode: "wine_glass" },
+          ],
+          travel: [
+            { emoji: "🚗", name: "automobile", shortcode: "car" },
+            { emoji: "🚕", name: "taxi", shortcode: "taxi" },
+            { emoji: "🚙", name: "sport utility vehicle", shortcode: "blue_car" },
+            { emoji: "🚌", name: "bus", shortcode: "bus" },
+            { emoji: "🚎", name: "trolleybus", shortcode: "trolleybus" },
+            { emoji: "🏎️", name: "racing car", shortcode: "racing_car" },
+            { emoji: "🚓", name: "police car", shortcode: "police_car" },
+            { emoji: "🚑", name: "ambulance", shortcode: "ambulance" },
+            { emoji: "🚒", name: "fire engine", shortcode: "fire_engine" },
+            { emoji: "🚐", name: "minibus", shortcode: "minibus" },
+            { emoji: "🛻", name: "pickup truck", shortcode: "pickup_truck" },
+            { emoji: "🚚", name: "delivery truck", shortcode: "truck" },
+            { emoji: "🚛", name: "articulated lorry", shortcode: "articulated_lorry" },
+            { emoji: "🚜", name: "tractor", shortcode: "tractor" },
+            { emoji: "🏍️", name: "motorcycle", shortcode: "motorcycle" },
+            { emoji: "🛵", name: "motor scooter", shortcode: "motor_scooter" },
+            { emoji: "🚲", name: "bicycle", shortcode: "bike" },
+            { emoji: "🛴", name: "kick scooter", shortcode: "kick_scooter" },
+            { emoji: "🛹", name: "skateboard", shortcode: "skateboard" },
+            { emoji: "🛼", name: "roller skate", shortcode: "roller_skate" },
+            { emoji: "🚂", name: "locomotive", shortcode: "steam_locomotive" },
+            { emoji: "🚆", name: "train", shortcode: "train2" },
+            { emoji: "🚇", name: "metro", shortcode: "metro" },
+            { emoji: "✈️", name: "airplane", shortcode: "airplane" },
+            { emoji: "🛫", name: "airplane departure", shortcode: "flight_departure" },
+            { emoji: "🛬", name: "airplane arrival", shortcode: "flight_arrival" },
+            { emoji: "🚁", name: "helicopter", shortcode: "helicopter" },
+            { emoji: "🚀", name: "rocket", shortcode: "rocket" },
+            { emoji: "🛸", name: "flying saucer", shortcode: "flying_saucer" },
+            { emoji: "🛰️", name: "satellite", shortcode: "satellite" },
+            { emoji: "⛵", name: "sailboat", shortcode: "boat" },
+            { emoji: "🚤", name: "speedboat", shortcode: "speedboat" },
+            { emoji: "🚢", name: "ship", shortcode: "ship" },
+            { emoji: "⚓", name: "anchor", shortcode: "anchor" },
+            { emoji: "🏠", name: "house", shortcode: "house" },
+            { emoji: "🏡", name: "house with garden", shortcode: "house_with_garden" },
+            { emoji: "🏢", name: "office building", shortcode: "office" },
+            { emoji: "🏥", name: "hospital", shortcode: "hospital" },
+            { emoji: "🏦", name: "bank", shortcode: "bank" },
+            { emoji: "🏨", name: "hotel", shortcode: "hotel" },
+            { emoji: "🏫", name: "school", shortcode: "school" },
+            { emoji: "🏰", name: "castle", shortcode: "castle" },
+            { emoji: "🗼", name: "Tokyo tower", shortcode: "tokyo_tower" },
+            { emoji: "🗽", name: "Statue of Liberty", shortcode: "statue_of_liberty" },
+          ],
+          activities: [
+            { emoji: "⚽", name: "soccer ball", shortcode: "soccer" },
+            { emoji: "🏀", name: "basketball", shortcode: "basketball" },
+            { emoji: "🏈", name: "american football", shortcode: "football" },
+            { emoji: "⚾", name: "baseball", shortcode: "baseball" },
+            { emoji: "🥎", name: "softball", shortcode: "softball" },
+            { emoji: "🎾", name: "tennis", shortcode: "tennis" },
+            { emoji: "🏐", name: "volleyball", shortcode: "volleyball" },
+            { emoji: "🏉", name: "rugby football", shortcode: "rugby_football" },
+            { emoji: "🥏", name: "flying disc", shortcode: "flying_disc" },
+            { emoji: "🎱", name: "pool 8 ball", shortcode: "8ball" },
+            { emoji: "🪀", name: "yo-yo", shortcode: "yo_yo" },
+            { emoji: "🏓", name: "ping pong", shortcode: "ping_pong" },
+            { emoji: "🏸", name: "badminton", shortcode: "badminton" },
+            { emoji: "🏒", name: "ice hockey", shortcode: "ice_hockey" },
+            { emoji: "⛳", name: "flag in hole", shortcode: "golf" },
+            { emoji: "🥊", name: "boxing glove", shortcode: "boxing_glove" },
+            { emoji: "🥋", name: "martial arts uniform", shortcode: "martial_arts_uniform" },
+            { emoji: "🎯", name: "direct hit", shortcode: "dart" },
+            { emoji: "🏆", name: "trophy", shortcode: "trophy" },
+            { emoji: "🥇", name: "1st place medal", shortcode: "first_place_medal" },
+            { emoji: "🥈", name: "2nd place medal", shortcode: "second_place_medal" },
+            { emoji: "🥉", name: "3rd place medal", shortcode: "third_place_medal" },
+            { emoji: "🎖️", name: "military medal", shortcode: "medal_military" },
+            { emoji: "🎗️", name: "reminder ribbon", shortcode: "reminder_ribbon" },
+            { emoji: "🎟️", name: "admission tickets", shortcode: "admission_tickets" },
+            { emoji: "🎫", name: "ticket", shortcode: "ticket" },
+            { emoji: "🎪", name: "circus tent", shortcode: "circus_tent" },
+            { emoji: "🎨", name: "artist palette", shortcode: "art" },
+            { emoji: "🎬", name: "clapper board", shortcode: "clapper" },
+            { emoji: "🎤", name: "microphone", shortcode: "microphone" },
+            { emoji: "🎧", name: "headphone", shortcode: "headphones" },
+            { emoji: "🎼", name: "musical score", shortcode: "musical_score" },
+            { emoji: "🎹", name: "musical keyboard", shortcode: "musical_keyboard" },
+            { emoji: "🥁", name: "drum", shortcode: "drum" },
+            { emoji: "🎷", name: "saxophone", shortcode: "saxophone" },
+            { emoji: "🎸", name: "guitar", shortcode: "guitar" },
+            { emoji: "🎻", name: "violin", shortcode: "violin" },
+            { emoji: "🎲", name: "game die", shortcode: "game_die" },
+            { emoji: "♟️", name: "chess pawn", shortcode: "chess_pawn" },
+            { emoji: "🎳", name: "bowling", shortcode: "bowling" },
+            { emoji: "🎮", name: "video game", shortcode: "video_game" },
+            { emoji: "🕹️", name: "joystick", shortcode: "joystick" },
+            { emoji: "🎰", name: "slot machine", shortcode: "slot_machine" },
+          ],
+          objects: [
+            { emoji: "🎉", name: "party popper", shortcode: "tada" },
+            { emoji: "🎊", name: "confetti ball", shortcode: "confetti_ball" },
+            { emoji: "🎈", name: "balloon", shortcode: "balloon" },
+            { emoji: "🎁", name: "wrapped gift", shortcode: "gift" },
+            { emoji: "🎀", name: "ribbon", shortcode: "ribbon" },
+            { emoji: "📱", name: "mobile phone", shortcode: "iphone" },
+            { emoji: "💻", name: "laptop", shortcode: "computer" },
+            { emoji: "🖥️", name: "desktop computer", shortcode: "desktop_computer" },
+            { emoji: "⌨️", name: "keyboard", shortcode: "keyboard" },
+            { emoji: "🖱️", name: "computer mouse", shortcode: "computer_mouse" },
+            { emoji: "🖨️", name: "printer", shortcode: "printer" },
+            { emoji: "💾", name: "floppy disk", shortcode: "floppy_disk" },
+            { emoji: "💿", name: "optical disk", shortcode: "cd" },
+            { emoji: "📀", name: "dvd", shortcode: "dvd" },
+            { emoji: "📷", name: "camera", shortcode: "camera" },
+            { emoji: "📹", name: "video camera", shortcode: "video_camera" },
+            { emoji: "🎥", name: "movie camera", shortcode: "movie_camera" },
+            { emoji: "📽️", name: "film projector", shortcode: "projector" },
+            { emoji: "📺", name: "television", shortcode: "tv" },
+            { emoji: "📻", name: "radio", shortcode: "radio" },
+            { emoji: "🎙️", name: "studio microphone", shortcode: "studio_microphone" },
+            { emoji: "💡", name: "light bulb", shortcode: "bulb" },
+            { emoji: "🔦", name: "flashlight", shortcode: "flashlight" },
+            { emoji: "🕯️", name: "candle", shortcode: "candle" },
+            { emoji: "🔋", name: "battery", shortcode: "battery" },
+            { emoji: "🔌", name: "electric plug", shortcode: "electric_plug" },
+            { emoji: "💸", name: "money with wings", shortcode: "money_with_wings" },
+            { emoji: "💵", name: "dollar banknote", shortcode: "dollar" },
+            { emoji: "💰", name: "money bag", shortcode: "moneybag" },
+            { emoji: "💳", name: "credit card", shortcode: "credit_card" },
+            { emoji: "💎", name: "gem stone", shortcode: "gem" },
+            { emoji: "⚖️", name: "balance scale", shortcode: "balance_scale" },
+            { emoji: "🔧", name: "wrench", shortcode: "wrench" },
+            { emoji: "🔨", name: "hammer", shortcode: "hammer" },
+            { emoji: "⚒️", name: "hammer and pick", shortcode: "hammer_and_pick" },
+            { emoji: "🛠️", name: "hammer and wrench", shortcode: "tools" },
+            { emoji: "⛏️", name: "pick", shortcode: "pick" },
+            { emoji: "🔩", name: "nut and bolt", shortcode: "nut_and_bolt" },
+            { emoji: "⚙️", name: "gear", shortcode: "gear" },
+            { emoji: "⛓️", name: "chains", shortcode: "chains" },
+            { emoji: "🧲", name: "magnet", shortcode: "magnet" },
+            { emoji: "🔫", name: "water pistol", shortcode: "gun" },
+            { emoji: "💣", name: "bomb", shortcode: "bomb" },
+            { emoji: "🧨", name: "firecracker", shortcode: "firecracker" },
+            { emoji: "🔪", name: "kitchen knife", shortcode: "hocho" },
+            { emoji: "🗡️", name: "dagger", shortcode: "dagger" },
+            { emoji: "⚔️", name: "crossed swords", shortcode: "crossed_swords" },
+            { emoji: "🛡️", name: "shield", shortcode: "shield" },
+            { emoji: "🚬", name: "cigarette", shortcode: "smoking" },
+            { emoji: "⚰️", name: "coffin", shortcode: "coffin" },
+            { emoji: "⚱️", name: "funeral urn", shortcode: "funeral_urn" },
+            { emoji: "🔮", name: "crystal ball", shortcode: "crystal_ball" },
+            { emoji: "📿", name: "prayer beads", shortcode: "prayer_beads" },
+            { emoji: "🧿", name: "nazar amulet", shortcode: "nazar_amulet" },
+            { emoji: "💈", name: "barber pole", shortcode: "barber" },
+            { emoji: "🔬", name: "microscope", shortcode: "microscope" },
+            { emoji: "🔭", name: "telescope", shortcode: "telescope" },
+            { emoji: "📡", name: "satellite antenna", shortcode: "satellite_antenna" },
+            { emoji: "💉", name: "syringe", shortcode: "syringe" },
+            { emoji: "🩹", name: "adhesive bandage", shortcode: "adhesive_bandage" },
+            { emoji: "🩺", name: "stethoscope", shortcode: "stethoscope" },
+            { emoji: "💊", name: "pill", shortcode: "pill" },
+            { emoji: "🩸", name: "drop of blood", shortcode: "drop_of_blood" },
+            { emoji: "🧬", name: "dna", shortcode: "dna" },
+            { emoji: "🦠", name: "microbe", shortcode: "microbe" },
+            { emoji: "🧫", name: "petri dish", shortcode: "petri_dish" },
+            { emoji: "🧪", name: "test tube", shortcode: "test_tube" },
+            { emoji: "🌡️", name: "thermometer", shortcode: "thermometer" },
+            { emoji: "🧹", name: "broom", shortcode: "broom" },
+            { emoji: "🧺", name: "basket", shortcode: "basket" },
+            { emoji: "🧻", name: "roll of paper", shortcode: "roll_of_paper" },
+            { emoji: "🧼", name: "soap", shortcode: "soap" },
+            { emoji: "🧽", name: "sponge", shortcode: "sponge" },
+            { emoji: "🧯", name: "fire extinguisher", shortcode: "fire_extinguisher" },
+            { emoji: "🛒", name: "shopping cart", shortcode: "shopping_cart" },
+            { emoji: "🛎️", name: "bellhop bell", shortcode: "bellhop_bell" },
+            { emoji: "🔑", name: "key", shortcode: "key" },
+            { emoji: "🗝️", name: "old key", shortcode: "old_key" },
+            { emoji: "🚪", name: "door", shortcode: "door" },
+            { emoji: "🪑", name: "chair", shortcode: "chair" },
+            { emoji: "🛋️", name: "couch and lamp", shortcode: "couch_and_lamp" },
+            { emoji: "🛏️", name: "bed", shortcode: "bed" },
+            { emoji: "📦", name: "package", shortcode: "package" },
+            { emoji: "📫", name: "closed mailbox with raised flag", shortcode: "mailbox" },
+            { emoji: "✉️", name: "envelope", shortcode: "email" },
+            { emoji: "📝", name: "memo", shortcode: "memo" },
+            { emoji: "📁", name: "file folder", shortcode: "file_folder" },
+            { emoji: "📂", name: "open file folder", shortcode: "open_file_folder" },
+            { emoji: "📄", name: "page facing up", shortcode: "page_facing_up" },
+            { emoji: "📅", name: "calendar", shortcode: "date" },
+            { emoji: "📊", name: "bar chart", shortcode: "bar_chart" },
+            { emoji: "📈", name: "chart increasing", shortcode: "chart_with_upwards_trend" },
+            { emoji: "📉", name: "chart decreasing", shortcode: "chart_with_downwards_trend" },
+            { emoji: "📌", name: "pushpin", shortcode: "pushpin" },
+            { emoji: "📍", name: "round pushpin", shortcode: "round_pushpin" },
+            { emoji: "📎", name: "paperclip", shortcode: "paperclip" },
+            { emoji: "📏", name: "straight ruler", shortcode: "straight_ruler" },
+            { emoji: "📐", name: "triangular ruler", shortcode: "triangular_ruler" },
+            { emoji: "✂️", name: "scissors", shortcode: "scissors" },
+            { emoji: "🔒", name: "locked", shortcode: "lock" },
+            { emoji: "🔓", name: "unlocked", shortcode: "unlock" },
+            { emoji: "🔏", name: "locked with pen", shortcode: "lock_with_ink_pen" },
+            { emoji: "🔐", name: "locked with key", shortcode: "closed_lock_with_key" },
+            { emoji: "🔔", name: "bell", shortcode: "bell" },
+            { emoji: "🔕", name: "bell with slash", shortcode: "no_bell" },
+            { emoji: "⏱️", name: "stopwatch", shortcode: "stopwatch" },
+            { emoji: "⏰", name: "alarm clock", shortcode: "alarm_clock" },
+            { emoji: "⏳", name: "hourglass not done", shortcode: "hourglass_flowing_sand" },
+            { emoji: "⌛", name: "hourglass done", shortcode: "hourglass" },
+            { emoji: "📚", name: "books", shortcode: "books" },
+          ],
+          symbols: [
+            { emoji: "❤️", name: "red heart", shortcode: "heart" },
+            { emoji: "🧡", name: "orange heart", shortcode: "orange_heart" },
+            { emoji: "💛", name: "yellow heart", shortcode: "yellow_heart" },
+            { emoji: "💚", name: "green heart", shortcode: "green_heart" },
+            { emoji: "💙", name: "blue heart", shortcode: "blue_heart" },
+            { emoji: "💜", name: "purple heart", shortcode: "purple_heart" },
+            { emoji: "🖤", name: "black heart", shortcode: "black_heart" },
+            { emoji: "🤍", name: "white heart", shortcode: "white_heart" },
+            { emoji: "🤎", name: "brown heart", shortcode: "brown_heart" },
+            { emoji: "💔", name: "broken heart", shortcode: "broken_heart" },
+            { emoji: "❣️", name: "heart exclamation", shortcode: "heavy_heart_exclamation" },
+            { emoji: "💕", name: "two hearts", shortcode: "two_hearts" },
+            { emoji: "💞", name: "revolving hearts", shortcode: "revolving_hearts" },
+            { emoji: "💓", name: "beating heart", shortcode: "heartbeat" },
+            { emoji: "💗", name: "growing heart", shortcode: "heartpulse" },
+            { emoji: "💖", name: "sparkling heart", shortcode: "sparkling_heart" },
+            { emoji: "💘", name: "heart with arrow", shortcode: "cupid" },
+            { emoji: "💝", name: "heart with ribbon", shortcode: "gift_heart" },
+            { emoji: "💟", name: "heart decoration", shortcode: "heart_decoration" },
+            { emoji: "☮️", name: "peace symbol", shortcode: "peace_symbol" },
+            { emoji: "✝️", name: "latin cross", shortcode: "cross" },
+            { emoji: "☪️", name: "star and crescent", shortcode: "star_and_crescent" },
+            { emoji: "🕉️", name: "om", shortcode: "om" },
+            { emoji: "☸️", name: "wheel of dharma", shortcode: "wheel_of_dharma" },
+            { emoji: "✡️", name: "star of David", shortcode: "star_of_david" },
+            { emoji: "☯️", name: "yin yang", shortcode: "yin_yang" },
+            { emoji: "💯", name: "hundred points", shortcode: "100" },
+            { emoji: "💢", name: "anger symbol", shortcode: "anger" },
+            { emoji: "💬", name: "speech balloon", shortcode: "speech_balloon" },
+            { emoji: "👁️‍🗨️", name: "eye in speech bubble", shortcode: "eye_speech_bubble" },
+            { emoji: "🗯️", name: "right anger bubble", shortcode: "anger_bubble" },
+            { emoji: "💭", name: "thought balloon", shortcode: "thought_balloon" },
+            { emoji: "💤", name: "zzz", shortcode: "zzz" },
+            { emoji: "✨", name: "sparkles", shortcode: "sparkles" },
+            { emoji: "💫", name: "dizzy", shortcode: "dizzy" },
+            { emoji: "💥", name: "collision", shortcode: "boom" },
+            { emoji: "🛑", name: "stop sign", shortcode: "stop_sign" },
+            { emoji: "⛔", name: "no entry", shortcode: "no_entry" },
+            { emoji: "📛", name: "name badge", shortcode: "name_badge" },
+            { emoji: "🚫", name: "prohibited", shortcode: "no_entry_sign" },
+            { emoji: "⭕", name: "hollow red circle", shortcode: "o" },
+            { emoji: "✅", name: "check mark button", shortcode: "white_check_mark" },
+            { emoji: "☑️", name: "check box with check", shortcode: "ballot_box_with_check" },
+            { emoji: "✔️", name: "check mark", shortcode: "heavy_check_mark" },
+            { emoji: "❌", name: "cross mark", shortcode: "x" },
+            { emoji: "❎", name: "cross mark button", shortcode: "negative_squared_cross_mark" },
+            { emoji: "➕", name: "plus", shortcode: "heavy_plus_sign" },
+            { emoji: "➖", name: "minus", shortcode: "heavy_minus_sign" },
+            { emoji: "➗", name: "division", shortcode: "heavy_division_sign" },
+            { emoji: "✖️", name: "multiplication", shortcode: "heavy_multiplication_x" },
+            { emoji: "❓", name: "red question mark", shortcode: "question" },
+            { emoji: "❔", name: "white question mark", shortcode: "grey_question" },
+            { emoji: "❕", name: "white exclamation mark", shortcode: "grey_exclamation" },
+            { emoji: "❗", name: "red exclamation mark", shortcode: "exclamation" },
+            { emoji: "⚠️", name: "warning", shortcode: "warning" },
+            { emoji: "♻️", name: "recycling symbol", shortcode: "recycle" },
+            { emoji: "❇️", name: "sparkle", shortcode: "sparkle" },
+            { emoji: "✳️", name: "eight-spoked asterisk", shortcode: "eight_spoked_asterisk" },
+            { emoji: "🟢", name: "green circle", shortcode: "green_circle" },
+            { emoji: "🟡", name: "yellow circle", shortcode: "yellow_circle" },
+            { emoji: "🔴", name: "red circle", shortcode: "red_circle" },
+            { emoji: "🔵", name: "blue circle", shortcode: "large_blue_circle" },
+            { emoji: "🟣", name: "purple circle", shortcode: "purple_circle" },
+            { emoji: "🟤", name: "brown circle", shortcode: "brown_circle" },
+            { emoji: "⚫", name: "black circle", shortcode: "black_circle" },
+            { emoji: "⚪", name: "white circle", shortcode: "white_circle" },
+          ],
+          flags: [
+            { emoji: "🏁", name: "chequered flag", shortcode: "checkered_flag" },
+            { emoji: "🚩", name: "triangular flag", shortcode: "triangular_flag_on_post" },
+            { emoji: "🎌", name: "crossed flags", shortcode: "crossed_flags" },
+            { emoji: "🏴", name: "black flag", shortcode: "black_flag" },
+            { emoji: "🏳️", name: "white flag", shortcode: "white_flag" },
+            { emoji: "🏳️‍🌈", name: "rainbow flag", shortcode: "rainbow_flag" },
+            { emoji: "🏳️‍⚧️", name: "transgender flag", shortcode: "transgender_flag" },
+            { emoji: "🏴‍☠️", name: "pirate flag", shortcode: "pirate_flag" },
+          ],
+        },
+
+        init(textarea) {
+          this.textarea = textarea;
+          $("btn-emoji")?.addEventListener("click", (e) => {
+            e.stopPropagation();
+            this.toggle();
+          });
+
+          $("btn-close-emoji")?.addEventListener("click", () => this.close());
+
+          $("emoji-search")?.addEventListener("input", (e) => {
+            this.searchQuery = e.target.value.toLowerCase().trim();
+            this.render();
+          });
+
+          $("emoji-tabs")?.querySelectorAll("[data-cat]").forEach((tab) => {
+            tab.addEventListener("click", () => {
+              $("emoji-tabs").querySelectorAll("[data-cat]").forEach((t) => t.classList.remove("btn-active"));
+              tab.classList.add("btn-active");
+              this.category = tab.getAttribute("data-cat");
+              this.render();
+            });
+          });
+
+          document.addEventListener("click", (e) => {
+            if (this.isOpen && !$("composer-emoji-picker")?.contains(e.target) && e.target !== $("btn-emoji")) {
+              this.close();
+            }
+          });
+
+          // Preload full offline dataset from localStorage or local backend
+          this.loadOfflineData();
+        },
+
+        async loadOfflineData() {
+          // 1. Instant load from localStorage cache if available
+          try {
+            const cached = localStorage.getItem("forest_chat_emojis_cache");
+            if (cached) {
+              const list = JSON.parse(cached);
+              if (Array.isArray(list) && list.length > 0) {
+                this.populateFromList(list);
+              }
+            }
+          } catch (_) {}
+
+          // 2. Fetch fresh offline emoji dataset from local Rust server (/api/emojis)
+          try {
+            const res = await fetch("/api/emojis");
+            if (res.ok) {
+              const list = await res.json();
+              if (Array.isArray(list) && list.length > 0) {
+                this.populateFromList(list);
+                try {
+                  localStorage.setItem("forest_chat_emojis_cache", JSON.stringify(list));
+                } catch (_) {}
+              }
+            }
+          } catch (_) {}
+        },
+
+        populateFromList(list) {
+          this.allEmojis = list;
+          const grouped = {
+            smileys: [],
+            people: [],
+            nature: [],
+            food: [],
+            travel: [],
+            activities: [],
+            objects: [],
+            symbols: [],
+            flags: [],
+          };
+          for (const item of list) {
+            const g = item.group || "smileys";
+            if (!grouped[g]) grouped[g] = [];
+            grouped[g].push(item);
+          }
+          this.data = grouped;
+          if (this.isOpen) {
+            this.render();
+          }
+        },
+
+        toggle() {
+          if (this.isOpen) this.close();
+          else this.open();
+        },
+
+        open() {
+          this.isOpen = true;
+          $("composer-emoji-picker")?.classList.remove("hidden");
+          const search = $("emoji-search");
+          if (search) search.value = "";
+          this.searchQuery = "";
+          this.render();
+          setTimeout(() => $("emoji-search")?.focus(), 50);
+        },
+
+        close() {
+          this.isOpen = false;
+          $("composer-emoji-picker")?.classList.add("hidden");
+        },
+
+        render() {
+          const grid = $("emoji-grid");
+          if (!grid) return;
+
+          let pool = [];
+          if (this.category === "all") {
+            if (this.allEmojis.length > 0) {
+              pool = this.allEmojis;
+            } else {
+              pool = Object.values(this.data).flat();
+            }
+          } else {
+            pool = this.data[this.category] || [];
+          }
+
+          if (this.searchQuery) {
+            const q = this.searchQuery;
+            pool = pool.filter((item) => {
+              const em = typeof item === "string" ? item : item.emoji;
+              const name = (typeof item === "object" && item.name ? item.name : "").toLowerCase();
+              const shortcode = (typeof item === "object" && item.shortcode ? item.shortcode : "").toLowerCase();
+              return em.includes(q) || name.includes(q) || shortcode.includes(q);
+            });
+          }
+
+          // Limit rendering slice for instant responsiveness (max 180 rendered at once in viewport)
+          const displayItems = this.searchQuery ? pool.slice(0, 160) : pool.slice(0, 200);
+
+          const items = displayItems.map((item) => {
+            const em = typeof item === "string" ? item : item.emoji;
+            const name = typeof item === "object" && item.name ? item.name : "";
+            const shortcode = typeof item === "object" && item.shortcode ? item.shortcode : "";
+            const tooltip = name ? `${em} ${name}${shortcode ? ` (:${shortcode}:)` : ""}` : em;
+
+            return h("button", {
+              type: "button",
+              class: "btn btn-ghost btn-xs btn-square text-lg p-0 hover:scale-125 transition-transform",
+              title: tooltip,
+              onclick: (e) => {
+                e.preventDefault();
+                this.insertEmoji(em);
+              },
+            }, em);
+          });
+
+          if (items.length === 0) {
+            grid.replaceChildren(h("div", { class: "col-span-8 py-4 text-center text-xs text-base-content/50" }, "No emoji found"));
+          } else {
+            grid.replaceChildren(...items);
+          }
+        },
+
+        insertEmoji(em) {
+          if (!this.textarea) return;
+          const start = this.textarea.selectionStart;
+          const end = this.textarea.selectionEnd;
+          const val = this.textarea.value;
+          this.textarea.value = val.slice(0, start) + em + val.slice(end);
+          const newPos = start + em.length;
+          this.textarea.setSelectionRange(newPos, newPos);
+          this.textarea.focus();
+          this.close();
+          ChatComposer.onInput();
+        },
+      };
+
+      /**
+       * ChatComposer Coordinator Component
+       * Manages textarea auto-resizing, shortcuts, attachments, drag/drop, paste, and dispatch.
+       */
+      const ChatComposer = {
+        draft: {
+          text: "",
+          attachments: [],
+          mentions: [],
+        },
+
+        init() {
+          this.textarea = $("composer-input");
+          this.sendBtn = $("composer-send");
+          this.attachBtn = $("btn-attach");
+          this.emojiBtn = $("btn-emoji");
+          this.charCount = $("composer-char-count");
+          this.container = $("composer-container");
+          this.dropzone = $("composer-dropzone");
+
+          if (!this.textarea) return;
+
+          // Subcomponents init
+          AttachmentPreview.render(this.draft.attachments, (id) => this.removeAttachment(id));
+          FormattingToolbar.init(this.textarea, (fmt) => {
+            FormattingToolbar.apply(this.textarea, fmt);
+            this.onInput();
+          });
+          MentionMenu.init(this.textarea, () => {
+            this.onInput();
+          });
+          EmojiPicker.init(this.textarea);
+
+          // Listeners
+          this.textarea.addEventListener("input", () => this.onInput());
+          this.textarea.addEventListener("keydown", (e) => this.onKeyDown(e));
+          this.textarea.addEventListener("paste", (e) => this.onPaste(e));
+          this.textarea.addEventListener("blur", stopTyping);
+
+          // Submit
+          $("composer")?.addEventListener("submit", (e) => {
+            e.preventDefault();
+            this.send();
+          });
+
+          // File attach button
+          this.attachBtn?.addEventListener("click", () => $("file-input")?.click());
+          $("file-input")?.addEventListener("change", (e) => {
+            const files = [...e.target.files];
+            e.target.value = "";
+            if (files.length > 0) this.addFiles(files);
+          });
+
+          // Setup drag and drop
+          this.setupDragAndDrop();
+        },
+
+        setupDragAndDrop() {
+          let dragCounter = 0;
+          const dropzone = this.dropzone;
+          if (!dropzone) return;
+
+          window.addEventListener("dragenter", (e) => {
+            if (!state.active) return;
+            if (e.dataTransfer?.types?.includes("Files")) {
+              dragCounter++;
+              dropzone.classList.remove("hidden");
+            }
+          });
+
+          window.addEventListener("dragleave", (e) => {
+            if (!state.active) return;
+            dragCounter = Math.max(0, dragCounter - 1);
+            if (dragCounter === 0) dropzone.classList.add("hidden");
+          });
+
+          window.addEventListener("dragover", (e) => {
+            if (!state.active) return;
+            e.preventDefault();
+          });
+
+          window.addEventListener("drop", (e) => {
+            if (!state.active) return;
+            e.preventDefault();
+            dragCounter = 0;
+            dropzone.classList.add("hidden");
+            if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
+              this.addFiles([...e.dataTransfer.files]);
+            }
+          });
+        },
+
+        onPaste(e) {
+          if (!state.active) return;
+          const clipboardFiles = e.clipboardData?.files;
+          if (clipboardFiles && clipboardFiles.length > 0) {
+            e.preventDefault();
+            this.addFiles([...clipboardFiles]);
+          }
+        },
+
+        addFiles(files) {
+          for (const file of files) {
+            const id = "att-" + (++uploadSeq);
+            const isImg = file.type.startsWith("image/");
+            const previewUrl = isImg ? URL.createObjectURL(file) : undefined;
+            this.draft.attachments.push({
+              id,
+              file,
+              name: file.name,
+              size: file.size,
+              mime: file.type || "application/octet-stream",
+              previewUrl,
+            });
+          }
+          AttachmentPreview.render(this.draft.attachments, (id) => this.removeAttachment(id));
+          this.updateState();
+          this.textarea.focus();
+        },
+
+        removeAttachment(id) {
+          const idx = this.draft.attachments.findIndex((a) => a.id === id);
+          if (idx !== -1) {
+            const [removed] = this.draft.attachments.splice(idx, 1);
+            if (removed.previewUrl) URL.revokeObjectURL(removed.previewUrl);
+          }
+          AttachmentPreview.render(this.draft.attachments, (id) => this.removeAttachment(id));
+          this.updateState();
+          this.textarea.focus();
+        },
+
+        clearAttachments() {
+          for (const att of this.draft.attachments) {
+            if (att.previewUrl) URL.revokeObjectURL(att.previewUrl);
+          }
+          this.draft.attachments = [];
+          AttachmentPreview.render(this.draft.attachments, (id) => this.removeAttachment(id));
+        },
+
+        onInput() {
+          this.autoResize();
+          this.updateState();
+
+          if (this.textarea.value.trim()) startTyping();
+          else stopTyping();
+        },
+
+        autoResize() {
+          this.textarea.style.height = "auto";
+          const height = Math.min(Math.max(this.textarea.scrollHeight, 42), 180);
+          this.textarea.style.height = `${height}px`;
+        },
+
+        onKeyDown(e) {
+          // Let MentionMenu handle navigation if open
+          if (MentionMenu.isOpen && MentionMenu.handleKey(e)) {
+            return;
+          }
+
+          // Shift + Enter: inserts newline
+          if (e.key === "Enter" && e.shiftKey) {
+            setTimeout(() => this.autoResize(), 0);
+            return;
+          }
+
+          // Enter without Shift: handle list continuation or send
+          if (e.key === "Enter" && !e.shiftKey) {
+            const cursorPos = this.textarea.selectionStart;
+            const text = this.textarea.value;
+            const currentLineStart = text.lastIndexOf("\n", cursorPos - 1) + 1;
+            const currentLine = text.slice(currentLineStart, cursorPos);
+
+            // Check bullet list continuation: "- " or "* "
+            const bulletMatch = currentLine.match(/^(\s*[-*]\s+)(.*)$/);
+            if (bulletMatch) {
+              e.preventDefault();
+              const prefix = bulletMatch[1];
+              const content = bulletMatch[2];
+              if (!content.trim()) {
+                // Empty bullet: clear bullet and exit list
+                this.textarea.value = text.slice(0, currentLineStart) + text.slice(cursorPos);
+                this.textarea.setSelectionRange(currentLineStart, currentLineStart);
+              } else {
+                // Insert next bullet
+                const ins = "\n" + prefix;
+                this.textarea.value = text.slice(0, cursorPos) + ins + text.slice(cursorPos);
+                const nextPos = cursorPos + ins.length;
+                this.textarea.setSelectionRange(nextPos, nextPos);
+              }
+              this.onInput();
+              return;
+            }
+
+            // Check numbered list continuation: "1. "
+            const numMatch = currentLine.match(/^(\s*)(\d+)\.\s+(.*)$/);
+            if (numMatch) {
+              e.preventDefault();
+              const indent = numMatch[1];
+              const num = parseInt(numMatch[2], 10);
+              const content = numMatch[3];
+              if (!content.trim()) {
+                // Empty number: clear prefix and exit list
+                this.textarea.value = text.slice(0, currentLineStart) + text.slice(cursorPos);
+                this.textarea.setSelectionRange(currentLineStart, currentLineStart);
+              } else {
+                // Insert next number
+                const ins = `\n${indent}${num + 1}. `;
+                this.textarea.value = text.slice(0, cursorPos) + ins + text.slice(cursorPos);
+                const nextPos = cursorPos + ins.length;
+                this.textarea.setSelectionRange(nextPos, nextPos);
+              }
+              this.onInput();
+              return;
+            }
+
+            // Plain enter: send message
+            e.preventDefault();
+            this.send();
+          }
+        },
+
+        updateState() {
+          const text = this.textarea.value.trim();
+          const hasContent = text.length > 0 || this.draft.attachments.length > 0;
+          const isEnabled = state.active && hasContent;
+          if (this.sendBtn) this.sendBtn.disabled = !isEnabled;
+
+          // Character counter
+          const len = this.textarea.value.length;
+          if (len >= 1200) {
+            this.charCount.classList.remove("hidden");
+            this.charCount.textContent = `${len.toLocaleString()} / 2,000`;
+            if (len >= 1950) {
+              this.charCount.className = "text-[11px] font-mono tabular-nums text-error font-bold";
+            } else if (len >= 1600) {
+              this.charCount.className = "text-[11px] font-mono tabular-nums text-warning font-medium";
+            } else {
+              this.charCount.className = "text-[11px] font-mono tabular-nums text-base-content/50";
+            }
+          } else {
+            this.charCount.classList.add("hidden");
+          }
+        },
+
+        async send() {
+          const text = this.textarea.value.trim();
+          const attachments = [...this.draft.attachments];
+          if ((!text && attachments.length === 0) || !state.active) return;
+
+          stopTyping();
+          if (this.sendBtn) this.sendBtn.disabled = true;
+
+          // If attachments exist, upload them first
+          if (attachments.length > 0) {
+            const originalSendBtnHtml = this.sendBtn.innerHTML;
+            this.sendBtn.innerHTML = '<span class="loading loading-spinner loading-xs"></span> Sending…';
+            for (let i = 0; i < attachments.length; i++) {
+              const att = attachments[i];
+              const isFirst = i === 0;
+              try {
+                await new Promise((resolve, reject) => {
+                  const xhr = new XMLHttpRequest();
+                  const query = new URLSearchParams({ name: state.me ?? "", token: state.token ?? "" });
+                  xhr.open("POST", `/api/upload?${query}`);
+                  const form = new FormData();
+                  form.append("file", att.file, att.name);
+
+                  xhr.addEventListener("load", () => {
+                    let body = null;
+                    try { body = JSON.parse(xhr.responseText); } catch (_) {}
+                    if (xhr.status === 200 && body?.id) {
+                      send({
+                        type: "send",
+                        chat: state.active,
+                        text: isFirst ? text : "",
+                        attachment: body,
+                      });
+                      resolve();
+                    } else {
+                      toast(body?.error ?? `Upload failed for ${att.name}`);
+                      reject();
+                    }
+                  });
+                  xhr.addEventListener("error", () => {
+                    toast(`Could not send ${att.name}`);
+                    reject();
+                  });
+                  xhr.send(form);
+                });
+              } catch (_) {
+                this.sendBtn.innerHTML = originalSendBtnHtml;
+                this.updateState();
+                return;
+              }
+            }
+            this.sendBtn.innerHTML = originalSendBtnHtml;
+          } else {
+            // Plain text send
+            send({ type: "send", chat: state.active, text });
+          }
+
+          // Clear draft
+          this.textarea.value = "";
+          this.clearAttachments();
+          this.autoResize();
+          this.updateState();
+          this.textarea.focus();
+        },
+
+        setActiveChat(chat) {
+          if (chat) {
+            this.textarea.disabled = false;
+            if (this.attachBtn) this.attachBtn.disabled = false;
+            if (this.emojiBtn) this.emojiBtn.disabled = false;
+            this.textarea.placeholder =
+              chat.kind === "room"
+                ? (chat.id === "general" ? "Message the group…" : `Message #${chat.id}…`)
+                : `Message @${chat.id}…`;
+            this.updateState();
+            this.textarea.focus();
+          } else {
+            this.textarea.disabled = true;
+            if (this.attachBtn) this.attachBtn.disabled = true;
+            if (this.emojiBtn) this.emojiBtn.disabled = true;
+            if (this.sendBtn) this.sendBtn.disabled = true;
+            this.textarea.placeholder = "Pick a chat to start";
+            this.textarea.value = "";
+            this.clearAttachments();
+            this.updateState();
+          }
+        },
+      };
 
       $("logout").addEventListener("click", () => {
         localStorage.removeItem(ACTIVE_KEY);
@@ -1851,6 +3447,7 @@
       // ---------- boot ----------
 
       async function boot() {
+        ChatComposer.init();
         updateLoginAvatar();
         const active = getActiveAccount();
         if (active?.name && active?.token) {
