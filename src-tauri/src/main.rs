@@ -6,6 +6,7 @@ use tauri::{Manager, WebviewUrl, webview::WebviewWindowBuilder};
 
 mod attachments;
 mod lan_meeting;
+mod pip;
 
 /// Binds the chat server to the same port it used last time, when that port is
 /// still free.
@@ -43,11 +44,16 @@ fn main() {
             attachments::save_attachment_as,
             attachments::reveal_saved_file,
             lan_meeting::commands::get_lan_ip_info,
+            lan_meeting::commands::discover_lan_meetings,
+            lan_meeting::commands::respond_meeting_join_request,
             lan_meeting::commands::create_lan_meeting,
             lan_meeting::commands::join_lan_meeting,
             lan_meeting::commands::leave_lan_meeting,
             lan_meeting::commands::toggle_meeting_mic,
             lan_meeting::commands::toggle_meeting_screen_share,
+            lan_meeting::commands::list_share_sources,
+            pip::set_meeting_pip_visible,
+            pip::focus_main_window,
             lan_meeting::commands::send_meeting_chat,
             lan_meeting::commands::get_meeting_status,
         ])
@@ -88,12 +94,39 @@ fn main() {
                     format!("http://127.0.0.1:{port}/").parse()?
                 }
             };
-            WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
+            let main_window = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
                 .title("Forest Chat")
                 .inner_size(1100.0, 720.0)
                 .min_inner_size(640.0, 480.0)
                 .center()
                 .build()?;
+
+            // While a meeting is running, switching to another application pops
+            // out a small always-on-top window so the room stays visible.
+            let handle = app.handle().clone();
+            main_window.on_window_event(move |event| {
+                let tauri::WindowEvent::Focused(focused) = event else {
+                    return;
+                };
+
+                if *focused {
+                    pip::hide(&handle);
+                    return;
+                }
+
+                let in_meeting = handle
+                    .state::<lan_meeting::commands::LanMeetingManager>()
+                    .active_meeting
+                    .lock()
+                    .map(|meeting| meeting.is_some())
+                    .unwrap_or(false);
+
+                if in_meeting {
+                    if let Err(e) = pip::show(&handle) {
+                        log::warn!("Could not open the floating meeting window: {e}");
+                    }
+                }
+            });
 
             Ok(())
         })

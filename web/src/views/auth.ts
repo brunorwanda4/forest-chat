@@ -4,7 +4,8 @@ import {
   getSavedAccounts,
   saveAccount,
   forgetAccount,
-  ACTIVE_KEY,
+  setActiveAccount,
+  clearActiveAccount,
 } from "../state";
 import { $, h, avatar, avatarUrl, toast } from "../utils/dom";
 import { NAME_RE } from "../utils/format";
@@ -128,6 +129,7 @@ export async function loginWithSavedAccount(acc: SavedAccount): Promise<void> {
     const data = await apiVerify(acc.name, acc.token);
     if (data.valid) {
       saveAccount(acc.name, acc.token);
+      setActiveAccount(acc.name, acc.token);
       if (connectCallback) connectCallback(acc.name, acc.token);
     } else {
       forgetAccount(acc.name);
@@ -223,11 +225,9 @@ export function initAuthUI(): void {
 
       if (remember) {
         saveAccount(data.name, data.token);
+        setActiveAccount(data.name, data.token);
       } else {
-        localStorage.setItem(
-          ACTIVE_KEY,
-          JSON.stringify({ name: data.name, token: data.token })
-        );
+        clearActiveAccount();
       }
 
       state.active = null;
@@ -245,7 +245,7 @@ export function initAuthUI(): void {
   });
 
   $("logout")?.addEventListener("click", () => {
-    localStorage.removeItem(ACTIVE_KEY);
+    clearActiveAccount();
     showLogin();
   });
 }

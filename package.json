@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "build:css": "tailwindcss -i styles/app.css -o static/app.css --minify",
-    "build:js": "bun build web/src/main.ts --outfile static/app.js --target browser --minify",
+    "build:js": "bun build web/src/main.ts --outfile static/app.js --target browser --minify && bun build web/src/pip.ts --outfile static/pip.js --target browser --minify",
     "build": "bun run build:css && bun run build:js",
     "watch:css": "tailwindcss -i styles/app.css -o static/app.css --watch",
     "watch:js": "bun build web/src/main.ts --outfile static/app.js --target browser --watch",

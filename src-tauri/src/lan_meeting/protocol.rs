@@ -40,6 +40,28 @@ pub enum SignalingMessage {
         to_peer_id: String,
         candidate: String,
     },
+    /// Sent to the host when a guest is waiting to be let in.
+    #[serde(rename = "join-requested")]
+    JoinRequested {
+        peer_id: String,
+        name: String,
+    },
+    /// Sent to the guest: the host has been asked, hold on.
+    #[serde(rename = "join-pending")]
+    JoinPending {
+        room_id: String,
+    },
+    /// The host's verdict on a waiting guest.
+    #[serde(rename = "join-decision")]
+    JoinDecision {
+        peer_id: String,
+        accept: bool,
+    },
+    /// Sent to the guest when the host says no.
+    #[serde(rename = "join-rejected")]
+    JoinRejected {
+        room_id: String,
+    },
     #[serde(rename = "peer-left")]
     PeerLeft {
         peer_id: String,
@@ -139,6 +161,22 @@ mod tests {
         assert!(json.contains("\"type\":\"peer-left\""));
 
         // leave-room
+        // knock / approval
+        let requested = SignalingMessage::JoinRequested {
+            peer_id: "peer2".into(),
+            name: "Bob".into(),
+        };
+        let json = serde_json::to_string(&requested).unwrap();
+        assert!(json.contains("\"type\":\"join-requested\""));
+
+        let decision = SignalingMessage::JoinDecision {
+            peer_id: "peer2".into(),
+            accept: true,
+        };
+        let json = serde_json::to_string(&decision).unwrap();
+        assert!(json.contains("\"type\":\"join-decision\""));
+        assert!(json.contains("\"accept\":true"));
+
         let leave = SignalingMessage::LeaveRoom {
             room_id: "room123".into(),
             peer_id: "peer1".into(),

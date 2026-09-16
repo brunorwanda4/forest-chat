@@ -22,6 +22,21 @@ async fn index() -> HttpResponse {
         .body(include_str!("../static/index.html"))
 }
 
+/// The floating always-on-top meeting window.
+#[cfg(not(debug_assertions))]
+async fn pip() -> HttpResponse {
+    HttpResponse::Ok()
+        .content_type("text/html; charset=utf-8")
+        .body(include_str!("../static/pip.html"))
+}
+
+#[cfg(not(debug_assertions))]
+async fn pip_js() -> HttpResponse {
+    HttpResponse::Ok()
+        .content_type("application/javascript; charset=utf-8")
+        .body(include_str!("../static/pip.js"))
+}
+
 #[cfg(not(debug_assertions))]
 async fn app_js() -> HttpResponse {
     HttpResponse::Ok()
@@ -96,6 +111,31 @@ mod dev_reload {
             .body(html)
     }
 
+    const PIP_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/static/pip.html");
+    const PIP_JS_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/static/pip.js");
+
+    pub async fn pip() -> HttpResponse {
+        match fs::read_to_string(PIP_PATH) {
+            Ok(content) => HttpResponse::Ok()
+                .content_type("text/html; charset=utf-8")
+                .insert_header(("Cache-Control", "no-store"))
+                .body(content),
+            Err(error) => HttpResponse::InternalServerError()
+                .body(format!("cannot read {PIP_PATH}: {error}")),
+        }
+    }
+
+    pub async fn pip_js() -> HttpResponse {
+        match fs::read_to_string(PIP_JS_PATH) {
+            Ok(content) => HttpResponse::Ok()
+                .content_type("application/javascript; charset=utf-8")
+                .insert_header(("Cache-Control", "no-store"))
+                .body(content),
+            Err(error) => HttpResponse::InternalServerError()
+                .body(format!("cannot read {PIP_JS_PATH}: {error}")),
+        }
+    }
+
     pub async fn app_js() -> HttpResponse {
         match fs::read_to_string(JS_PATH) {
             Ok(content) => HttpResponse::Ok()
@@ -126,7 +166,7 @@ mod dev_reload {
 }
 
 #[cfg(debug_assertions)]
-use dev_reload::{app_css, app_js, index};
+use dev_reload::{app_css, app_js, index, pip, pip_js};
 
 #[derive(Deserialize)]
 struct AuthReq {
@@ -314,6 +354,8 @@ pub async fn create_server(listener: TcpListener, db_path: PathBuf) -> io::Resul
             .route("/api/emojis", web::get().to(api_emojis))
             .route("/ws", web::get().to(chat_ws))
             .route("/app.js", web::get().to(app_js))
+            .route("/pip", web::get().to(pip))
+            .route("/pip.js", web::get().to(pip_js))
             .route("/app.css", web::get().to(app_css))
             .route("/", web::get().to(index));
 

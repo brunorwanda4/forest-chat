@@ -15,6 +15,8 @@ pub struct Room {
     pub id: String,
     pub host_peer_id: String,
     pub peers: HashMap<String, RoomPeer>,
+    /// Guests who have knocked and are waiting on the host's verdict.
+    pub pending: HashMap<String, RoomPeer>,
 }
 
 impl Room {
@@ -23,8 +25,22 @@ impl Room {
             id,
             host_peer_id,
             peers: HashMap::new(),
+            pending: HashMap::new(),
         }
     }
+}
+
+/// What should happen to a peer that just asked to join.
+pub enum JoinOutcome {
+    /// The first peer in the room is its host and walks straight in.
+    Admitted {
+        existing_peers: Vec<PeerInfo>,
+        existing_senders: Vec<mpsc::UnboundedSender<SignalingMessage>>,
+    },
+    /// The host has been asked and the guest is waiting.
+    AwaitingApproval {
+        host_tx: mpsc::UnboundedSender<SignalingMessage>,
+    },
 }
 
 #[derive(Clone, Default)]
@@ -48,48 +64,118 @@ impl RoomManager {
         });
     }
 
-    /// Adds a peer to the specified room.
-    /// Returns a list of existing peers in the room (excluding the newly joined peer)
-    /// and a list of senders for all existing peers so they can be notified.
+    /// Adds a peer to the specified room, or parks it until the host decides.
+    ///
+    /// The peer that opens a room is its host and is admitted immediately.
+    /// Everyone after that waits in [`Room::pending`] until [`approve_peer`] or
+    /// [`reject_peer`] is called for them.
+    ///
+    /// [`approve_peer`]: RoomManager::approve_peer
+    /// [`reject_peer`]: RoomManager::reject_peer
     pub async fn join_peer(
         &self,
         room_id: &str,
         peer_id: String,
         name: String,
         tx: mpsc::UnboundedSender<SignalingMessage>,
-    ) -> Result<(Vec<PeerInfo>, Vec<mpsc::UnboundedSender<SignalingMessage>>), String> {
+    ) -> Result<JoinOutcome, String> {
         let mut rooms = self.rooms.write().await;
-        let room = rooms.entry(room_id.to_string()).or_insert_with(|| {
-            Room::new(room_id.to_string(), peer_id.clone())
-        });
+        let room = rooms
+            .entry(room_id.to_string())
+            .or_insert_with(|| Room::new(room_id.to_string(), peer_id.clone()));
 
         // Mesh architecture: limit to around 2-6 peers
-        if room.peers.len() >= 6 {
+        if room.peers.len() + room.pending.len() >= 6 {
             return Err("Room is full (maximum 6 participants)".to_string());
         }
 
         let is_host = room.peers.is_empty() || room.host_peer_id == peer_id;
         if is_host {
             room.host_peer_id = peer_id.clone();
+
+            let existing_peers: Vec<PeerInfo> =
+                room.peers.values().map(|p| p.info.clone()).collect();
+            let existing_senders: Vec<mpsc::UnboundedSender<SignalingMessage>> =
+                room.peers.values().map(|p| p.tx.clone()).collect();
+
+            room.peers.insert(
+                peer_id.clone(),
+                RoomPeer {
+                    info: PeerInfo {
+                        peer_id,
+                        name,
+                        is_host,
+                    },
+                    tx,
+                },
+            );
+
+            return Ok(JoinOutcome::Admitted {
+                existing_peers,
+                existing_senders,
+            });
         }
 
-        let existing_peers: Vec<PeerInfo> = room.peers.values().map(|p| p.info.clone()).collect();
-        let existing_senders: Vec<mpsc::UnboundedSender<SignalingMessage>> =
-            room.peers.values().map(|p| p.tx.clone()).collect();
+        let host_tx = room
+            .peers
+            .get(&room.host_peer_id)
+            .map(|host| host.tx.clone())
+            .ok_or_else(|| "The host has left this room".to_string())?;
 
-        room.peers.insert(
+        room.pending.insert(
             peer_id.clone(),
             RoomPeer {
                 info: PeerInfo {
                     peer_id,
                     name,
-                    is_host,
+                    is_host: false,
                 },
                 tx,
             },
         );
 
-        Ok((existing_peers, existing_senders))
+        Ok(JoinOutcome::AwaitingApproval { host_tx })
+    }
+
+    /// Lets a waiting guest in, as the host asked.
+    ///
+    /// Returns the guest's own sender plus the peers already in the room, so the
+    /// caller can send the welcome and announce the arrival.
+    #[allow(clippy::type_complexity)]
+    pub async fn approve_peer(
+        &self,
+        room_id: &str,
+        peer_id: &str,
+    ) -> Option<(
+        PeerInfo,
+        mpsc::UnboundedSender<SignalingMessage>,
+        Vec<PeerInfo>,
+        Vec<mpsc::UnboundedSender<SignalingMessage>>,
+    )> {
+        let mut rooms = self.rooms.write().await;
+        let room = rooms.get_mut(room_id)?;
+        let peer = room.pending.remove(peer_id)?;
+
+        let existing_peers: Vec<PeerInfo> = room.peers.values().map(|p| p.info.clone()).collect();
+        let existing_senders: Vec<mpsc::UnboundedSender<SignalingMessage>> =
+            room.peers.values().map(|p| p.tx.clone()).collect();
+
+        let info = peer.info.clone();
+        let tx = peer.tx.clone();
+        room.peers.insert(peer_id.to_string(), peer);
+
+        Some((info, tx, existing_peers, existing_senders))
+    }
+
+    /// Turns a waiting guest away. Returns its sender so it can be told.
+    pub async fn reject_peer(
+        &self,
+        room_id: &str,
+        peer_id: &str,
+    ) -> Option<mpsc::UnboundedSender<SignalingMessage>> {
+        let mut rooms = self.rooms.write().await;
+        let room = rooms.get_mut(room_id)?;
+        room.pending.remove(peer_id).map(|peer| peer.tx)
     }
 
     /// Routes a direct signaling message (offer, answer, ice-candidate) to the target peer.
@@ -138,6 +224,7 @@ impl RoomManager {
 
         if let Some(room) = rooms.get_mut(room_id) {
             room.peers.remove(peer_id);
+            room.pending.remove(peer_id);
             if room.peers.is_empty() {
                 rooms.remove(room_id);
             } else {
@@ -148,6 +235,14 @@ impl RoomManager {
         }
 
         remaining_senders
+    }
+
+    /// Reports whether `peer_id` hosts the room, used to gate join decisions.
+    pub async fn is_host(&self, room_id: &str, peer_id: &str) -> bool {
+        let rooms = self.rooms.read().await;
+        rooms
+            .get(room_id)
+            .is_some_and(|room| room.host_peer_id == peer_id)
     }
 
     /// Returns the current list of participants in a room.
@@ -165,17 +260,30 @@ impl RoomManager {
 mod tests {
     use super::*;
 
+    fn admitted(
+        outcome: JoinOutcome,
+    ) -> (Vec<PeerInfo>, Vec<mpsc::UnboundedSender<SignalingMessage>>) {
+        match outcome {
+            JoinOutcome::Admitted {
+                existing_peers,
+                existing_senders,
+            } => (existing_peers, existing_senders),
+            JoinOutcome::AwaitingApproval { .. } => panic!("expected an immediate admission"),
+        }
+    }
+
     #[tokio::test]
     async fn test_room_lifecycle() {
         let mgr = RoomManager::new();
         let (tx1, mut rx1) = mpsc::unbounded_channel();
         let (tx2, _rx2) = mpsc::unbounded_channel();
 
-        // Peer 1 joins (becomes host)
-        let (existing, senders) = mgr
-            .join_peer("test-room", "peer1".into(), "Alice".into(), tx1)
-            .await
-            .unwrap();
+        // Peer 1 opens the room and hosts it
+        let (existing, senders) = admitted(
+            mgr.join_peer("test-room", "peer1".into(), "Alice".into(), tx1)
+                .await
+                .unwrap(),
+        );
         assert!(existing.is_empty());
         assert!(senders.is_empty());
 
@@ -183,11 +291,17 @@ mod tests {
         assert_eq!(peers.len(), 1);
         assert!(peers[0].is_host);
 
-        // Peer 2 joins
-        let (existing2, senders2) = mgr
+        // Peer 2 knocks and is approved
+        let outcome = mgr
             .join_peer("test-room", "peer2".into(), "Bob".into(), tx2)
             .await
             .unwrap();
+        assert!(matches!(outcome, JoinOutcome::AwaitingApproval { .. }));
+
+        let (info, _tx, existing2, senders2) =
+            mgr.approve_peer("test-room", "peer2").await.unwrap();
+        assert_eq!(info.name, "Bob");
+        assert!(!info.is_host);
         assert_eq!(existing2.len(), 1);
         assert_eq!(existing2[0].peer_id, "peer1");
         assert_eq!(senders2.len(), 1);
@@ -218,5 +332,64 @@ mod tests {
         assert!(remaining_after.is_empty());
         assert!(mgr.list_peers("test-room").await.is_empty());
     }
-}
 
+    #[tokio::test]
+    async fn a_guest_stays_out_until_the_host_approves() {
+        let mgr = RoomManager::new();
+        let (host_tx, mut host_rx) = mpsc::unbounded_channel();
+        let (guest_tx, _guest_rx) = mpsc::unbounded_channel();
+
+        admitted(
+            mgr.join_peer("room", "host".into(), "Alice".into(), host_tx)
+                .await
+                .unwrap(),
+        );
+
+        let outcome = mgr
+            .join_peer("room", "guest".into(), "Bob".into(), guest_tx)
+            .await
+            .unwrap();
+
+        // The knock reaches the host, and the guest is not a participant yet.
+        match outcome {
+            JoinOutcome::AwaitingApproval { host_tx } => {
+                host_tx
+                    .send(SignalingMessage::JoinRequested {
+                        peer_id: "guest".into(),
+                        name: "Bob".into(),
+                    })
+                    .unwrap();
+            }
+            JoinOutcome::Admitted { .. } => panic!("a guest must not walk straight in"),
+        }
+        assert!(matches!(
+            host_rx.recv().await.unwrap(),
+            SignalingMessage::JoinRequested { .. }
+        ));
+        assert_eq!(mgr.list_peers("room").await.len(), 1);
+
+        mgr.approve_peer("room", "guest").await.unwrap();
+        assert_eq!(mgr.list_peers("room").await.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn a_rejected_guest_is_dropped_rather_than_admitted() {
+        let mgr = RoomManager::new();
+        let (host_tx, _host_rx) = mpsc::unbounded_channel();
+        let (guest_tx, _guest_rx) = mpsc::unbounded_channel();
+
+        admitted(
+            mgr.join_peer("room", "host".into(), "Alice".into(), host_tx)
+                .await
+                .unwrap(),
+        );
+        mgr.join_peer("room", "guest".into(), "Bob".into(), guest_tx)
+            .await
+            .unwrap();
+
+        assert!(mgr.reject_peer("room", "guest").await.is_some());
+        assert_eq!(mgr.list_peers("room").await.len(), 1);
+        // A second verdict on the same guest has nothing left to act on.
+        assert!(mgr.approve_peer("room", "guest").await.is_none());
+    }
+}

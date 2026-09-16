@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en" data-theme="forest">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Forest Chat meeting</title>
+    <link rel="stylesheet" href="/app.css" />
+  </head>
+  <body class="overflow-hidden bg-base-300 select-none">
+    <div class="flex h-dvh flex-col rounded-xl border border-base-content/10 overflow-hidden">
+      <!-- Dragging anywhere on the header moves the window -->
+      <div data-tauri-drag-region class="flex items-center gap-2 px-3 py-1.5 bg-base-200 cursor-move">
+        <span class="w-2 h-2 rounded-full bg-success shrink-0"></span>
+        <span id="pip-room" class="text-[11px] font-mono font-semibold truncate">meeting</span>
+        <span id="pip-count" class="badge badge-ghost badge-xs ml-auto shrink-0">0</span>
+      </div>
+
+      <div class="relative flex-1 min-h-0 bg-black">
+        <canvas id="pip-canvas" class="hidden h-full w-full object-contain"></canvas>
+
+        <div id="pip-people" class="flex h-full flex-wrap items-center justify-center gap-2 p-2"></div>
+
+        <div id="pip-presenter" class="hidden absolute top-1 left-1 badge badge-neutral badge-xs gap-1"></div>
+      </div>
+
+      <div class="flex items-center gap-1 px-2 py-1.5 bg-base-200">
+        <button id="pip-mic" type="button" class="btn btn-ghost btn-xs" title="Mute or unmute">🎙️</button>
+        <button id="pip-share" type="button" class="btn btn-ghost btn-xs" title="Stop sharing">🖥️</button>
+        <button id="pip-open" type="button" class="btn btn-primary btn-xs ml-auto" title="Back to Forest Chat">Open</button>
+        <button id="pip-leave" type="button" class="btn btn-error btn-xs" title="Leave the meeting">Leave</button>
+      </div>
+    </div>
+
+    <script type="module" src="/pip.js"></script>
+  </body>
+</html>

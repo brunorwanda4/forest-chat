@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-list-share-sources"
+description = "Enables the list_share_sources command without any pre-configured scope."
+commands.allow = ["list_share_sources"]
+
+[[permission]]
+identifier = "deny-list-share-sources"
+description = "Denies the list_share_sources command without any pre-configured scope."
+commands.deny = ["list_share_sources"]

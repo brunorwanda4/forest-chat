@@ -19,6 +19,33 @@ export const meetingState: LanMeetingState = {
   mutedPeers: new Set(),
 };
 
+/// A meeting room advertised by a host on this network.
+interface DiscoveredRoom {
+  room_id: string;
+  host_name: string;
+  host_ip: string;
+  port: number;
+  participant_count: number;
+}
+
+/// A monitor or window offered by the share picker.
+interface ShareSource {
+  target: { kind: "monitor" | "window"; id: number };
+  title: string;
+  app_name: string;
+  thumbnail: string | null;
+}
+
+let shareSources: ShareSource[] = [];
+let shareTab: "monitor" | "window" = "monitor";
+let chosenSource: ShareSource["target"] | null = null;
+
+/// Guests the host has not answered yet, oldest first.
+const knockQueue: { peer_id: string; name: string }[] = [];
+
+let scanTimer: number | null = null;
+let pendingJoin: LanRoomInfo | null = null;
+
 export async function onTauriEvent(
   eventName: string,
   handler: (payload: any) => void
@@ -92,6 +119,7 @@ export async function loadLocalIpInfo(): Promise<void> {
 }
 
 export function enterMeetingView(roomInfo: LanRoomInfo): void {
+  stopRoomScanning();
   meetingState.inMeeting = true;
   meetingState.isHost = roomInfo.is_host;
   meetingState.roomId = roomInfo.room_id;
@@ -132,6 +160,12 @@ export function exitMeetingView(): void {
   meetingState.participants = [];
   meetingState.isSharingScreen = false;
   meetingState.presenterPeerId = null;
+
+  // Nobody is waiting on a room we just left.
+  knockQueue.length = 0;
+  pendingJoin = null;
+  ($("modal-meeting-knock") as HTMLDialogElement | null)?.close();
+  ($("modal-meeting-waiting") as HTMLDialogElement | null)?.close();
 
   $("meeting-active")?.classList.add("hidden");
   $("meeting-lobby")?.classList.remove("hidden");
@@ -282,6 +316,249 @@ export function updateScreenShareButtonUI(): void {
   }
 }
 
+/// Asks the network which rooms are open and redraws the list.
+async function scanForRooms(): Promise<void> {
+  const spinner = $("rooms-scan-spinner");
+  spinner?.classList.remove("hidden");
+  try {
+    const rooms = await tauriInvoke<DiscoveredRoom[]>("discover_lan_meetings");
+    renderRoomList(rooms);
+  } catch (err: any) {
+    console.warn("Room discovery failed:", err);
+  } finally {
+    spinner?.classList.add("hidden");
+  }
+}
+
+/// Scans now, then keeps the list fresh while the Join tab is open.
+function startRoomScanning(): void {
+  scanForRooms();
+  if (scanTimer !== null) return;
+  scanTimer = window.setInterval(scanForRooms, 6000);
+}
+
+function stopRoomScanning(): void {
+  if (scanTimer !== null) {
+    window.clearInterval(scanTimer);
+    scanTimer = null;
+  }
+}
+
+function renderRoomList(rooms: DiscoveredRoom[]): void {
+  const list = $("lan-rooms-list");
+  const empty = $("lan-rooms-empty");
+  if (!list) return;
+
+  list.innerHTML = "";
+  if (!rooms.length) {
+    empty?.classList.remove("hidden");
+    return;
+  }
+  empty?.classList.add("hidden");
+
+  for (const room of rooms) {
+    const people = room.participant_count === 1 ? "1 person" : `${room.participant_count} people`;
+    const card = h(
+      "button",
+      {
+        type: "button",
+        class:
+          "w-full flex items-center gap-3 p-2.5 rounded-lg bg-base-100 border border-base-300 hover:bg-base-200 transition-colors text-left",
+      },
+      h("img", { class: "w-9 h-9 rounded-full shrink-0", src: avatarUrl(room.host_name), alt: "" }),
+      h(
+        "div",
+        { class: "flex-1 min-w-0" },
+        h("div", { class: "font-medium text-sm truncate" }, `${room.host_name}'s room`),
+        h(
+          "div",
+          { class: "text-xs text-base-content/60 truncate" },
+          `#${room.room_id.toUpperCase()} · ${people} · ${room.host_ip}`
+        )
+      ),
+      h("span", { class: "badge badge-secondary badge-sm shrink-0" }, "Join")
+    );
+    card.addEventListener("click", () => joinDiscoveredRoom(room));
+    list.appendChild(card);
+  }
+}
+
+/// Knocks on a room found by discovery, then waits for the host to answer.
+async function joinDiscoveredRoom(room: DiscoveredRoom): Promise<void> {
+  const name = (($("join-name") as HTMLInputElement | null)?.value || "").trim();
+  if (!name) {
+    toast("Please enter your display name first");
+    ($("join-name") as HTMLInputElement | null)?.focus();
+    return;
+  }
+
+  const codeEl = $("waiting-room-code");
+  if (codeEl) codeEl.textContent = `#${room.room_id.toUpperCase()}`;
+
+  try {
+    pendingJoin = await tauriInvoke<LanRoomInfo>("join_lan_meeting", {
+      joinUrlOrIp: `${room.host_ip}:${room.port}`,
+      roomId: room.room_id,
+      name,
+    });
+  } catch (err: any) {
+    pendingJoin = null;
+    closeWaitingDialog();
+    toast(`Join error: ${err}`, "error");
+  }
+}
+
+function closeWaitingDialog(): void {
+  ($("modal-meeting-waiting") as HTMLDialogElement | null)?.close();
+}
+
+/// Shows the next guest waiting at the door, if any.
+function showNextKnock(): void {
+  const dialog = $("modal-meeting-knock") as HTMLDialogElement | null;
+  const next = knockQueue[0];
+  if (!dialog || !next) {
+    dialog?.close();
+    return;
+  }
+
+  const nameEl = $("knock-name");
+  if (nameEl) nameEl.textContent = next.name;
+  const avatarEl = $("knock-avatar") as HTMLImageElement | null;
+  if (avatarEl) avatarEl.src = avatarUrl(next.name);
+
+  const queueEl = $("knock-queue");
+  if (queueEl) {
+    const waiting = knockQueue.length - 1;
+    queueEl.textContent = waiting > 0 ? `${waiting} more waiting` : "";
+    queueEl.classList.toggle("hidden", waiting === 0);
+  }
+
+  if (!dialog.open) dialog.showModal();
+}
+
+/// Answers the guest currently on screen and moves to the next one.
+async function answerKnock(accept: boolean): Promise<void> {
+  const guest = knockQueue.shift();
+  if (!guest) return;
+
+  try {
+    await tauriInvoke("respond_meeting_join_request", { peerId: guest.peer_id, accept });
+    toast(accept ? `${guest.name} was admitted` : `${guest.name} was declined`, "info");
+  } catch (err: any) {
+    toast(`Could not answer ${guest.name}: ${err}`, "error");
+  }
+
+  showNextKnock();
+}
+
+/// Opens the picker and loads what can be shared right now.
+async function openSharePicker(): Promise<void> {
+  const dialog = $("modal-share-picker") as HTMLDialogElement | null;
+  if (!dialog) return;
+
+  shareSources = [];
+  chosenSource = null;
+  shareTab = "monitor";
+  setShareTab("monitor");
+  ($("btn-share-confirm") as HTMLButtonElement | null)?.setAttribute("disabled", "true");
+  $("share-loading")?.classList.remove("hidden");
+  $("share-empty")?.classList.add("hidden");
+  const grid = $("share-source-grid");
+  if (grid) grid.innerHTML = "";
+  dialog.showModal();
+
+  try {
+    shareSources = await tauriInvoke<ShareSource[]>("list_share_sources");
+    renderShareSources();
+  } catch (err: any) {
+    dialog.close();
+    toast(`Could not list what to share: ${err}`, "error");
+  } finally {
+    $("share-loading")?.classList.add("hidden");
+  }
+}
+
+function setShareTab(kind: "monitor" | "window"): void {
+  shareTab = kind;
+  const screens = $("tab-share-screens");
+  const windows = $("tab-share-windows");
+  if (screens) {
+    screens.className = kind === "monitor" ? "tab tab-active font-semibold" : "tab font-semibold";
+  }
+  if (windows) {
+    windows.className = kind === "window" ? "tab tab-active font-semibold" : "tab font-semibold";
+  }
+  renderShareSources();
+}
+
+function renderShareSources(): void {
+  const grid = $("share-source-grid");
+  if (!grid) return;
+
+  const sources = shareSources.filter((source) => source.target.kind === shareTab);
+  grid.innerHTML = "";
+  $("share-empty")?.classList.toggle("hidden", sources.length > 0);
+
+  for (const source of sources) {
+    const selected =
+      chosenSource?.kind === source.target.kind && chosenSource?.id === source.target.id;
+
+    const preview = source.thumbnail
+      ? h("img", {
+          class: "w-full h-24 object-cover rounded-lg bg-base-300",
+          src: source.thumbnail,
+          alt: "",
+        })
+      : h(
+          "div",
+          {
+            class:
+              "w-full h-24 rounded-lg bg-base-300 flex items-center justify-center text-2xl opacity-40",
+          },
+          source.target.kind === "monitor" ? "🖥️" : "🪟"
+        );
+
+    const card = h(
+      "button",
+      {
+        type: "button",
+        class: `p-2 rounded-xl border text-left transition-colors ${
+          selected
+            ? "border-primary ring-2 ring-primary/40 bg-primary/5"
+            : "border-base-300 hover:bg-base-200"
+        }`,
+      },
+      preview,
+      h("div", { class: "mt-2 text-xs font-medium truncate" }, source.title),
+      h("div", { class: "text-[10px] text-base-content/60 truncate" }, source.app_name)
+    );
+
+    card.addEventListener("click", () => {
+      chosenSource = source.target;
+      ($("btn-share-confirm") as HTMLButtonElement | null)?.removeAttribute("disabled");
+      renderShareSources();
+    });
+
+    grid.appendChild(card);
+  }
+}
+
+/// Starts sharing whatever the user picked.
+async function startShare(): Promise<void> {
+  if (!chosenSource) return;
+  ($("modal-share-picker") as HTMLDialogElement | null)?.close();
+
+  try {
+    meetingState.isSharingScreen = await tauriInvoke<boolean>("toggle_meeting_screen_share", {
+      source: chosenSource,
+    });
+    updateScreenShareButtonUI();
+    updateParticipantsUI();
+  } catch (err: any) {
+    toast(`Screen share error: ${err}`, "error");
+  }
+}
+
 export function initMeetingUI(): void {
   $("nav-chat-btn")?.addEventListener("click", () => switchAppMode("chat"));
   $("nav-meeting-btn")?.addEventListener("click", () => switchAppMode("meeting"));
@@ -292,6 +569,7 @@ export function initMeetingUI(): void {
     const tabJoin = $("tab-join");
     if (tabHost) tabHost.className = "tab tab-active font-semibold";
     if (tabJoin) tabJoin.className = "tab font-semibold";
+    stopRoomScanning();
     $("form-host")?.classList.remove("hidden");
     $("form-join")?.classList.add("hidden");
   });
@@ -301,8 +579,9 @@ export function initMeetingUI(): void {
     const tabHost = $("tab-host");
     if (tabJoin) tabJoin.className = "tab tab-active font-semibold";
     if (tabHost) tabHost.className = "tab font-semibold";
-    $("form-join")?.classList.remove("hidden");
+    $("join-panel")?.classList.remove("hidden");
     $("form-host")?.classList.add("hidden");
+    startRoomScanning();
   });
 
   // Side Panel Tabs
@@ -361,16 +640,31 @@ export function initMeetingUI(): void {
     const btn = $("btn-start-join") as HTMLButtonElement | null;
     if (btn) btn.disabled = true;
     try {
-      const res = await tauriInvoke<LanRoomInfo>("join_lan_meeting", {
+      const codeEl = $("waiting-room-code");
+      if (codeEl) codeEl.textContent = `#${roomId.toUpperCase()}`;
+      pendingJoin = await tauriInvoke<LanRoomInfo>("join_lan_meeting", {
         joinUrlOrIp,
         roomId,
         name,
       });
-      enterMeetingView(res);
     } catch (err: any) {
       toast(`Join error: ${err}`, "error");
     } finally {
       if (btn) btn.disabled = false;
+    }
+  });
+
+  $("btn-refresh-rooms")?.addEventListener("click", () => scanForRooms());
+  $("btn-knock-accept")?.addEventListener("click", () => answerKnock(true));
+  $("btn-knock-reject")?.addEventListener("click", () => answerKnock(false));
+
+  $("btn-cancel-waiting")?.addEventListener("click", async () => {
+    pendingJoin = null;
+    closeWaitingDialog();
+    try {
+      await tauriInvoke("leave_lan_meeting");
+    } catch (_) {
+      // Nothing to leave if the host never answered.
     }
   });
 
@@ -396,13 +690,19 @@ export function initMeetingUI(): void {
   });
 
   $("btn-meeting-share")?.addEventListener("click", async () => {
+    if (!meetingState.isSharingScreen) {
+      await openSharePicker();
+      return;
+    }
+
     try {
-      const newSharing = await tauriInvoke<boolean>("toggle_meeting_screen_share");
-      meetingState.isSharingScreen = newSharing;
+      meetingState.isSharingScreen = await tauriInvoke<boolean>("toggle_meeting_screen_share", {
+        source: null,
+      });
       updateScreenShareButtonUI();
       updateParticipantsUI();
 
-      if (!newSharing && meetingState.presenterPeerId === meetingState.peerId) {
+      if (meetingState.presenterPeerId === meetingState.peerId) {
         $("screen-placeholder")?.classList.remove("hidden");
         $("meeting-screen-canvas")?.classList.add("hidden");
         $("presenter-pill")?.classList.add("hidden");
@@ -411,6 +711,13 @@ export function initMeetingUI(): void {
       toast(`Screen share error: ${err}`, "error");
     }
   });
+
+  $("tab-share-screens")?.addEventListener("click", () => setShareTab("monitor"));
+  $("tab-share-windows")?.addEventListener("click", () => setShareTab("window"));
+  $("btn-share-confirm")?.addEventListener("click", () => startShare());
+  $("btn-share-cancel")?.addEventListener("click", () =>
+    ($("modal-share-picker") as HTMLDialogElement | null)?.close()
+  );
 
   $("btn-meeting-leave")?.addEventListener("click", async () => {
     try {
@@ -478,6 +785,40 @@ function setupMeetingCanvasAndEvents(): void {
       $("screen-placeholder")?.classList.remove("hidden");
       $("presenter-pill")?.classList.add("hidden");
       updateParticipantsUI();
+    }
+  });
+
+  // A guest is knocking; only the host receives this.
+  onTauriEvent("meeting://join-request", (payload: any) => {
+    if (!payload?.peer_id) return;
+    if (knockQueue.some((g) => g.peer_id === payload.peer_id)) return;
+    knockQueue.push({ peer_id: payload.peer_id, name: payload.name || "Someone" });
+    showNextKnock();
+  });
+
+  // Our own knock was delivered; sit tight until the host answers.
+  onTauriEvent("meeting://join-pending", () => {
+    ($("modal-meeting-waiting") as HTMLDialogElement | null)?.showModal();
+  });
+
+  // The host let us in.
+  onTauriEvent("meeting://join-accepted", () => {
+    closeWaitingDialog();
+    if (pendingJoin) {
+      enterMeetingView(pendingJoin);
+      pendingJoin = null;
+    }
+  });
+
+  // The host turned us away.
+  onTauriEvent("meeting://join-rejected", async () => {
+    pendingJoin = null;
+    closeWaitingDialog();
+    toast("The host declined your request to join", "error");
+    try {
+      await tauriInvoke("leave_lan_meeting");
+    } catch (_) {
+      // Already disconnected.
     }
   });
 

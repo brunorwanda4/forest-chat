@@ -3,6 +3,7 @@
 
 /* Sources containing class names */
 @source "../static/index.html";
+@source "../static/pip.html";
 @source "../web/src/**/*.ts";
 
 @plugin "daisyui" {

@@ -270,8 +270,6 @@
 
                   <!-- Hint / Helper -->
                   <div class="hidden md:flex items-center text-[11px] text-base-content/40 ml-2 gap-2 select-none">
-                    <span><kbd class="kbd kbd-xs">@</kbd> mention</span>
-                    <span><kbd class="kbd kbd-xs">Shift+↵</kbd> newline</span>
                   </div>
                 </div>
 
@@ -312,7 +310,6 @@
                   </div>
                   <div>
                     <h2 class="card-title text-2xl font-bold">LAN Real-Time Meeting</h2>
-                    <p class="text-xs text-base-content/70">Pure peer-to-peer real-time streaming, audio & chat across your local network</p>
                   </div>
                 </div>
 
@@ -352,35 +349,61 @@
                   </button>
                 </form>
 
-                <!-- Join Form -->
-                <form id="form-join" class="space-y-4 hidden">
+                <!-- Join: rooms found on this network -->
+                <div id="join-panel" class="space-y-4 hidden">
                   <div class="form-control">
                     <label class="label"><span class="label-text font-medium">Your Display Name</span></label>
                     <input id="join-name" type="text" placeholder="Your name" class="input input-bordered w-full" required />
                   </div>
 
-                  <div class="form-control">
-                    <label class="label">
-                      <span class="label-text font-medium">Host IP Address or Full Join Address</span>
-                    </label>
-                    <input id="join-host-addr" type="text" placeholder="e.g. 192.168.1.5:8080" class="input input-bordered w-full" required />
-                    <label class="label">
-                      <span class="label-text-alt text-base-content/60">Enter host LAN IP or full ws:// address</span>
-                    </label>
+                  <div class="rounded-xl border border-base-300 bg-base-200/50">
+                    <div class="flex items-center justify-between px-3 py-2 border-b border-base-300">
+                      <span class="text-xs font-semibold uppercase tracking-wide text-base-content/70">
+                        Rooms on your network
+                      </span>
+                      <button type="button" id="btn-refresh-rooms" class="btn btn-ghost btn-xs gap-1">
+                        <span id="rooms-scan-spinner" class="loading loading-spinner loading-xs hidden"></span>
+                        Refresh
+                      </button>
+                    </div>
+
+                    <div id="lan-rooms-list" class="max-h-60 overflow-y-auto p-2 space-y-2"></div>
+
+                    <div id="lan-rooms-empty" class="px-4 py-8 text-center">
+                      <p class="text-sm font-medium text-base-content/70">No rooms found yet</p>
+                      <p class="text-xs text-base-content/50 mt-1">
+                        Rooms hosted on your Wi-Fi/LAN show up here automatically.
+                      </p>
+                    </div>
                   </div>
 
-                  <div class="form-control">
-                    <label class="label"><span class="label-text font-medium">Room Code</span></label>
-                    <input id="join-room-code" type="text" placeholder="e.g. a1b2c3" maxlength="32" class="input input-bordered w-full font-mono uppercase" required />
-                  </div>
+                  <!-- Manual fallback for rooms on another subnet -->
+                  <details id="manual-join" class="rounded-xl border border-base-300 bg-base-200/30">
+                    <summary class="cursor-pointer select-none px-3 py-2 text-xs font-semibold uppercase tracking-wide text-base-content/70">
+                      Join by address instead
+                    </summary>
+                    <form id="form-join" class="space-y-3 p-3 pt-1">
+                      <div class="form-control">
+                        <label class="label py-1">
+                          <span class="label-text text-sm font-medium">Host IP Address or Full Join Address</span>
+                        </label>
+                        <input id="join-host-addr" type="text" placeholder="e.g. 192.168.1.5:8080" class="input input-bordered input-sm w-full" required />
+                      </div>
 
-                  <button type="submit" id="btn-start-join" class="btn btn-secondary w-full gap-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
-                    </svg>
-                    Connect & Join Meeting
-                  </button>
-                </form>
+                      <div class="form-control">
+                        <label class="label py-1"><span class="label-text text-sm font-medium">Room Code</span></label>
+                        <input id="join-room-code" type="text" placeholder="e.g. a1b2c3" maxlength="32" class="input input-bordered input-sm w-full font-mono uppercase" required />
+                      </div>
+
+                      <button type="submit" id="btn-start-join" class="btn btn-secondary btn-sm w-full gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
+                        </svg>
+                        Connect &amp; Join Meeting
+                      </button>
+                    </form>
+                  </details>
+                </div>
               </div>
             </div>
           </div>
@@ -581,6 +604,71 @@
         </div>
       </div>
       <form method="dialog" class="modal-backdrop"><button>close</button></form>
+    </dialog>
+
+    <!-- Pick what to share: a whole screen, or one application window -->
+    <dialog id="modal-share-picker" class="modal">
+      <div class="modal-box max-w-3xl">
+        <h3 class="font-bold text-lg">Choose what to share</h3>
+
+        <div class="tabs tabs-boxed w-full grid grid-cols-2 mt-3">
+          <button type="button" id="tab-share-screens" class="tab tab-active font-semibold">Entire Screen</button>
+          <button type="button" id="tab-share-windows" class="tab font-semibold">Window</button>
+        </div>
+
+        <div id="share-loading" class="py-10 text-center">
+          <span class="loading loading-spinner loading-md text-secondary"></span>
+          <p class="text-sm text-base-content/60 mt-2">Looking at what you have open…</p>
+        </div>
+
+        <div id="share-source-grid" class="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-72 overflow-y-auto mt-3 pr-1"></div>
+
+        <p id="share-empty" class="hidden py-8 text-center text-sm text-base-content/60">
+          Nothing to share here.
+        </p>
+
+        <div class="modal-action">
+          <button type="button" id="btn-share-cancel" class="btn btn-sm btn-ghost">Cancel</button>
+          <button type="button" id="btn-share-confirm" class="btn btn-sm btn-primary" disabled>Share</button>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop"><button>close</button></form>
+    </dialog>
+
+    <!-- Someone is knocking on the meeting room door (host only) -->
+    <dialog id="modal-meeting-knock" class="modal">
+      <div class="modal-box">
+        <h3 class="font-bold text-lg flex items-center gap-2">
+          <span class="text-secondary text-xl">🔔</span> Someone wants to join
+        </h3>
+        <div class="flex items-center gap-3 py-4">
+          <img id="knock-avatar" class="w-12 h-12 rounded-full bg-base-200" alt="" />
+          <div>
+            <p id="knock-name" class="font-semibold"></p>
+            <p class="text-xs text-base-content/60">is asking to join your meeting</p>
+          </div>
+        </div>
+        <p id="knock-queue" class="text-xs text-base-content/50 hidden"></p>
+        <div class="modal-action">
+          <button id="btn-knock-reject" type="button" class="btn btn-sm btn-ghost">Decline</button>
+          <button id="btn-knock-accept" type="button" class="btn btn-sm btn-primary">Admit</button>
+        </div>
+      </div>
+    </dialog>
+
+    <!-- Waiting for the host to admit us (guest only) -->
+    <dialog id="modal-meeting-waiting" class="modal">
+      <div class="modal-box text-center">
+        <span class="loading loading-spinner loading-lg text-secondary"></span>
+        <h3 class="font-bold text-lg mt-4">Waiting for the host</h3>
+        <p class="py-2 text-sm text-base-content/70">
+          Your request to join <span id="waiting-room-code" class="font-mono font-semibold"></span> was sent.
+          You will join automatically once the host admits you.
+        </p>
+        <div class="modal-action justify-center">
+          <button id="btn-cancel-waiting" type="button" class="btn btn-sm btn-ghost">Cancel</button>
+        </div>
+      </div>
     </dialog>
 
     <!-- Manage Group Modal -->

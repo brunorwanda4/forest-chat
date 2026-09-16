@@ -9,7 +9,7 @@ use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::protocol::Message as WsMessage;
 
 use super::protocol::SignalingMessage;
-use super::rooms::RoomManager;
+use super::rooms::{JoinOutcome, RoomManager};
 
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
 const CLIENT_TIMEOUT: Duration = Duration::from_secs(15);
@@ -63,7 +63,7 @@ async fn run_server_session(
                                 SignalingMessage::JoinRoom { room_id, peer_id, name } => {
                                     joined_peer = Some((room_id.clone(), peer_id.clone()));
                                     match rooms.join_peer(&room_id, peer_id.clone(), name.clone(), tx.clone()).await {
-                                        Ok((existing_peers, existing_senders)) => {
+                                        Ok(JoinOutcome::Admitted { existing_peers, existing_senders }) => {
                                             // Send confirmation to the joining peer with list of existing peers
                                             let welcome = SignalingMessage::PeerJoined {
                                                 peer_id: peer_id.clone(),
@@ -82,11 +82,55 @@ async fn run_server_session(
                                                 let _ = sender.send(notification.clone());
                                             }
                                         }
+                                        Ok(JoinOutcome::AwaitingApproval { host_tx }) => {
+                                            // Ask the host, and park the guest until it answers.
+                                            let _ = host_tx.send(SignalingMessage::JoinRequested {
+                                                peer_id: peer_id.clone(),
+                                                name: name.clone(),
+                                            });
+                                            let _ = tx.send(SignalingMessage::JoinPending {
+                                                room_id: room_id.clone(),
+                                            });
+                                        }
                                         Err(err_str) => {
                                             let err_msg = SignalingMessage::Error { message: err_str };
                                             let _ = tx.send(err_msg);
                                             break None;
                                         }
+                                    }
+                                }
+                                SignalingMessage::JoinDecision { peer_id: guest_id, accept } => {
+                                    // Only the host of the room this session belongs to may decide.
+                                    let target_room = joined_peer.as_ref().map(|(r, _)| r.clone()).unwrap_or_else(|| initial_room_id.clone());
+                                    let decider = joined_peer.as_ref().map(|(_, p)| p.clone()).unwrap_or_default();
+
+                                    if !rooms.is_host(&target_room, &decider).await {
+                                        let _ = tx.send(SignalingMessage::Error {
+                                            message: "Only the host can admit people".to_string(),
+                                        });
+                                    } else if accept {
+                                        if let Some((info, guest_tx, existing_peers, existing_senders)) =
+                                            rooms.approve_peer(&target_room, &guest_id).await
+                                        {
+                                            let _ = guest_tx.send(SignalingMessage::PeerJoined {
+                                                peer_id: info.peer_id.clone(),
+                                                name: info.name.clone(),
+                                                existing_peers,
+                                            });
+
+                                            let notification = SignalingMessage::PeerJoined {
+                                                peer_id: info.peer_id.clone(),
+                                                name: info.name.clone(),
+                                                existing_peers: vec![],
+                                            };
+                                            for sender in existing_senders {
+                                                let _ = sender.send(notification.clone());
+                                            }
+                                        }
+                                    } else if let Some(guest_tx) = rooms.reject_peer(&target_room, &guest_id).await {
+                                        let _ = guest_tx.send(SignalingMessage::JoinRejected {
+                                            room_id: target_room.clone(),
+                                        });
                                     }
                                 }
                                 SignalingMessage::Offer { ref to_peer_id, .. } => {

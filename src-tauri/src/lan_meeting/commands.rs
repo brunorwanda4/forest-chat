@@ -1,6 +1,6 @@
 use std::{
     net::TcpListener,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, atomic::AtomicBool},
 };
 
 use actix_web::{App, HttpServer, web};
@@ -11,9 +11,11 @@ use uuid::Uuid;
 
 use super::{
     audio::AudioEngine,
+    screen_capture,
+    discovery::{self, Advertised, DiscoveredRoom},
     protocol::{ChatPayload, MediaControlMessage, PeerInfo, SignalingMessage},
     rooms::RoomManager,
-    screen_capture::ScreenCapturer,
+    screen_capture::{CaptureTarget, ScreenCapturer, ShareSource},
     signaling::{SignalingClient, meeting_ws},
     webrtc_session::WebRtcMeshSession,
 };
@@ -65,13 +67,20 @@ pub struct LanMeetingManager {
     pub room_manager: RoomManager,
     pub active_meeting: Arc<Mutex<Option<ActiveMeeting>>>,
     pub server_running_port: Arc<Mutex<Option<u16>>>,
+    /// The room this machine currently advertises to the LAN, if any.
+    pub advertised: Advertised,
+    pub discovery_running: Arc<AtomicBool>,
 }
 
 /// Helper function to perform meeting cleanup
 async fn do_leave_meeting(
     active_meeting_slot: &Arc<Mutex<Option<ActiveMeeting>>>,
+    advertised: &Advertised,
     app_handle: &AppHandle,
 ) {
+    if let Ok(mut room) = advertised.lock() {
+        *room = None;
+    }
     let meeting = active_meeting_slot.lock().unwrap().take();
     if let Some(meeting) = meeting {
         log::info!("Leaving LAN meeting: {}", meeting.room_id);
@@ -120,7 +129,7 @@ pub async fn create_lan_meeting(
     }
 
     // Leave active meeting if any
-    do_leave_meeting(&mgr.active_meeting, &app_handle).await;
+    do_leave_meeting(&mgr.active_meeting, &mgr.advertised, &app_handle).await;
 
     let local_ip = local_ip_address::local_ip()
         .map(|ip| ip.to_string())
@@ -163,6 +172,17 @@ pub async fn create_lan_meeting(
             bound_port
         }
     };
+
+    discovery::start_responder(mgr.advertised.clone(), mgr.discovery_running.clone());
+    if let Ok(mut room) = mgr.advertised.lock() {
+        *room = Some(DiscoveredRoom {
+            room_id: room_id.clone(),
+            host_name: name.clone(),
+            host_ip: local_ip.clone(),
+            port,
+            participant_count: 1,
+        });
+    }
 
     let join_address = format!("ws://{local_ip}:{port}/ws/meeting/{room_id}");
     let local_connect_url = format!("ws://127.0.0.1:{port}/ws/meeting/{room_id}");
@@ -228,6 +248,7 @@ pub async fn create_lan_meeting(
         sig_client.rx,
         webrtc_session.clone(),
         participants.clone(),
+        mgr.advertised.clone(),
         app_handle.clone(),
     );
 
@@ -256,6 +277,55 @@ pub async fn create_lan_meeting(
         is_host: true,
         participants: initial_participants,
     })
+}
+
+/// Lists meeting rooms currently advertised on the local network.
+///
+/// One broadcast, a short listening window, whatever answered. A room the user
+/// is hosting on this machine answers too, so it is filtered out here.
+#[tauri::command]
+pub async fn discover_lan_meetings(
+    state: State<'_, LanMeetingManager>,
+) -> Result<Vec<DiscoveredRoom>, String> {
+    let own_room = state
+        .inner()
+        .active_meeting
+        .lock()
+        .unwrap()
+        .as_ref()
+        .map(|meeting| meeting.room_id.clone());
+
+    let rooms = tauri::async_runtime::spawn_blocking(discovery::scan)
+        .await
+        .map_err(|e| format!("Discovery task failed: {e}"))??;
+
+    Ok(rooms
+        .into_iter()
+        .filter(|room| Some(&room.room_id) != own_room.as_ref())
+        .collect())
+}
+
+/// Admits or turns away a guest waiting at the door. Host only.
+#[tauri::command]
+pub async fn respond_meeting_join_request(
+    peer_id: String,
+    accept: bool,
+    state: State<'_, LanMeetingManager>,
+) -> Result<(), String> {
+    let signaling_tx = {
+        let meeting_guard = state.inner().active_meeting.lock().unwrap();
+        let meeting = meeting_guard
+            .as_ref()
+            .ok_or_else(|| "Not currently in a meeting".to_string())?;
+        if !meeting.is_host {
+            return Err("Only the host can admit people".to_string());
+        }
+        meeting.signaling_tx.clone()
+    };
+
+    signaling_tx
+        .send(SignalingMessage::JoinDecision { peer_id, accept })
+        .map_err(|e| format!("Failed to send the decision: {e}"))
 }
 
 /// Joins an existing LAN meeting room as a peer.
@@ -289,7 +359,7 @@ pub async fn join_lan_meeting(
         format!("ws://{addr}/ws/meeting/{room_id}")
     };
 
-    do_leave_meeting(&mgr.active_meeting, &app_handle).await;
+    do_leave_meeting(&mgr.active_meeting, &mgr.advertised, &app_handle).await;
 
     let peer_id = Uuid::new_v4().to_string();
     let local_ip = local_ip_address::local_ip()
@@ -357,6 +427,7 @@ pub async fn join_lan_meeting(
         sig_client.rx,
         webrtc_session.clone(),
         participants.clone(),
+        mgr.advertised.clone(),
         app_handle.clone(),
     );
 
@@ -387,10 +458,20 @@ pub async fn join_lan_meeting(
     })
 }
 
+/// Keeps the advertised participant count in step with the real room.
+fn sync_advertised_count(advertised: &Advertised, count: usize) {
+    if let Ok(mut room) = advertised.lock() {
+        if let Some(room) = room.as_mut() {
+            room.participant_count = count;
+        }
+    }
+}
+
 fn spawn_signaling_handler(
     mut rx: mpsc::UnboundedReceiver<SignalingMessage>,
     webrtc: WebRtcMeshSession,
     participants: Arc<Mutex<Vec<PeerInfo>>>,
+    advertised: Advertised,
     app_handle: AppHandle,
 ) {
     tauri::async_runtime::spawn(async move {
@@ -410,7 +491,9 @@ fn spawn_signaling_handler(
                                 p_lock.push(ep.clone());
                             }
                         }
+                        sync_advertised_count(&advertised, p_lock.len());
                         let _ = app_handle.emit("meeting://participants-update", &*p_lock);
+                        let _ = app_handle.emit("meeting://join-accepted", ());
                     } else {
                         {
                             let mut p_lock = participants.lock().unwrap();
@@ -421,6 +504,7 @@ fn spawn_signaling_handler(
                                     is_host: false,
                                 });
                             }
+                            sync_advertised_count(&advertised, p_lock.len());
                             let _ = app_handle.emit("meeting://participants-update", &*p_lock);
                         }
 
@@ -477,10 +561,31 @@ fn spawn_signaling_handler(
                     {
                         let mut p_lock = participants.lock().unwrap();
                         p_lock.retain(|p| p.peer_id != peer_id);
+                        sync_advertised_count(&advertised, p_lock.len());
                         let _ = app_handle.emit("meeting://participants-update", &*p_lock);
                     }
                     webrtc.remove_peer(&peer_id).await;
                     let _ = app_handle.emit("meeting://participant-left", &peer_id);
+                }
+                SignalingMessage::JoinRequested { peer_id, name } => {
+                    log::info!("Join request from {name} ({peer_id})");
+                    let _ = app_handle.emit(
+                        "meeting://join-request",
+                        serde_json::json!({ "peer_id": peer_id, "name": name }),
+                    );
+                }
+                SignalingMessage::JoinPending { room_id } => {
+                    let _ = app_handle.emit(
+                        "meeting://join-pending",
+                        serde_json::json!({ "room_id": room_id }),
+                    );
+                }
+                SignalingMessage::JoinRejected { room_id } => {
+                    log::info!("Join request rejected for room {room_id}");
+                    let _ = app_handle.emit(
+                        "meeting://join-rejected",
+                        serde_json::json!({ "room_id": room_id }),
+                    );
                 }
                 SignalingMessage::Error { message } => {
                     log::error!("Signaling error: {message}");
@@ -498,7 +603,12 @@ pub async fn leave_lan_meeting(
     state: State<'_, LanMeetingManager>,
     app_handle: AppHandle,
 ) -> Result<(), String> {
-    do_leave_meeting(&state.inner().active_meeting, &app_handle).await;
+    do_leave_meeting(
+        &state.inner().active_meeting,
+        &state.inner().advertised,
+        &app_handle,
+    )
+    .await;
     Ok(())
 }
 
@@ -530,12 +640,24 @@ pub async fn toggle_meeting_mic(state: State<'_, LanMeetingManager>) -> Result<b
     }
 }
 
+/// Lists the monitors and windows the user can pick from when sharing.
+#[tauri::command]
+pub async fn list_share_sources() -> Result<Vec<ShareSource>, String> {
+    // Capturing a preview per window is slow enough to keep off the UI thread.
+    tauri::async_runtime::spawn_blocking(screen_capture::list_sources)
+        .await
+        .map_err(|e| format!("Failed to list share sources: {e}"))?
+}
+
 /// Toggles desktop screen sharing.
 #[tauri::command]
 pub async fn toggle_meeting_screen_share(
+    source: Option<CaptureTarget>,
     state: State<'_, LanMeetingManager>,
     app_handle: AppHandle,
 ) -> Result<bool, String> {
+    // No explicit pick means the primary monitor, as before the picker existed.
+    let target = source.unwrap_or_default();
     let mgr = state.inner();
     let meeting_guard = mgr.active_meeting.lock().unwrap();
     if let Some(meeting) = meeting_guard.as_ref() {
@@ -553,7 +675,7 @@ pub async fn toggle_meeting_screen_share(
             let app_handle_clone = app_handle.clone();
             let local_pid = pid.clone();
 
-            capturer.start_capture(move |jpeg_bytes| {
+            capturer.start_capture(target, move |jpeg_bytes| {
                 let webrtc = webrtc_clone.clone();
                 let app = app_handle_clone.clone();
                 let pid = local_pid.clone();

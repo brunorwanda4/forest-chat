@@ -1,5 +1,6 @@
 pub mod audio;
 pub mod commands;
+pub mod discovery;
 pub mod protocol;
 pub mod rooms;
 pub mod screen_capture;

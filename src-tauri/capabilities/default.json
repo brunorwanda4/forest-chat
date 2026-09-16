@@ -3,7 +3,8 @@
   "identifier": "default",
   "description": "Default capability for the Forest Chat window",
   "windows": [
-    "main"
+    "main",
+    "meeting-pip"
   ],
   "remote": {
     "urls": [
@@ -17,11 +18,16 @@
     "allow-save-attachment-as",
     "allow-reveal-saved-file",
     "allow-get-lan-ip-info",
+    "allow-discover-lan-meetings",
+    "allow-respond-meeting-join-request",
     "allow-create-lan-meeting",
     "allow-join-lan-meeting",
     "allow-leave-lan-meeting",
     "allow-toggle-meeting-mic",
     "allow-toggle-meeting-screen-share",
+    "allow-list-share-sources",
+    "allow-set-meeting-pip-visible",
+    "allow-focus-main-window",
     "allow-send-meeting-chat",
     "allow-get-meeting-status"
   ]
