@@ -42,6 +42,23 @@ $env:FOREST_CHAT_SERVER_URL = "https://chat.example.com"
 cargo run -p forest-chat-desktop -j 1
 ```
 
+## Development with live reload
+
+In debug builds (`cargo run`, `cargo tauri dev`) the server reads `static/index.html` from disk on
+every request and injects a small script that polls `/__dev/version`. Save the HTML file and the
+open window (desktop or browser) reloads automatically within about half a second, with no Rust
+rebuild. Release builds embed the HTML and have no reload endpoint.
+
+For Rust changes, use the Tauri CLI so the app rebuilds and restarts when `.rs` files change:
+
+```sh
+cargo install tauri-cli --version "^2.0.0" --locked
+cargo tauri dev
+```
+
+`.taurignore` excludes `static/` and database files so UI edits and chat traffic do not trigger a
+Rust restart. Note that restarting the desktop app drops open WebSocket and meeting connections.
+
 To create a Windows installer, install the Tauri CLI and build the bundle:
 
 ```sh
@@ -60,11 +77,38 @@ If the Rust compiler runs out of memory, set `CARGO_BUILD_JOBS=1` and run the bu
 - History (last 100 messages) is loaded only when a chat is opened, using an index on
   `(kind, target, id)`.
 
+## Authentication & Accounts
+
+Forest Chat supports persistent user accounts backed by local SQLite storage (`Turso`):
+- **Sign In & Create Account**: Register and log in securely with salted SHA-256 password hashing.
+- **Remember My Account**: Checkbox stores a device session token (`localStorage`), allowing automatic login on app restart.
+- **Remembered Accounts Drawer**: Quick 1-click switcher to toggle between or sign into previously remembered accounts.
+
+## Groups & Access Control
+
+- **`#general`**: Public room open to all users automatically upon login.
+- **`+ New Group`**: Any user can create a custom group. The creator is automatically assigned the `creator` admin role.
+- **Group Discovery & Join Requests**:
+  - All groups are discoverable in the sidebar.
+  - Groups that a user has not joined show a `🔒 Ask to Join` status.
+  - Clicking an unjoined group sends a **Join Request** (`⏳ Pending Approval`).
+  - Messages in restricted groups are accessible only to approved members.
+- **Admin Management**:
+  - Group creators and promoted admins see a **"Manage Group"** button in the chat header with a pending request count badge.
+  - Admins can **Approve** or **Decline** join requests in real-time.
+  - Admins can promote other members to **Admins** (`+ Make Admin`).
+
 ## Protocol
 
-Client → server (JSON over `/ws?name=<name>`):
+Client → server (JSON over `/ws?name=<name>&token=<token>`):
 
 ```json
+{ "type": "create_room", "room": "rust-dev" }
+{ "type": "request_join", "room": "rust-dev" }
+{ "type": "approve_join", "room": "rust-dev", "user": "bob" }
+{ "type": "reject_join", "room": "rust-dev", "user": "bob" }
+{ "type": "promote_admin", "room": "rust-dev", "user": "bob" }
+{ "type": "get_room_details", "room": "rust-dev" }
 { "type": "join", "room": "general" }
 { "type": "leave", "room": "general" }
 { "type": "send", "chat": { "kind": "room", "id": "general" }, "text": "hi" }
@@ -73,7 +117,7 @@ Client → server (JSON over `/ws?name=<name>`):
 { "type": "history", "chat": { "kind": "room", "id": "general" } }
 ```
 
-Server → client: `welcome`, `presence`, `rooms`, `joined`, `message`, `typing`, `history`, `error`.
+Server → client: `welcome`, `presence`, `rooms`, `joined`, `room_details`, `join_requested`, `join_approved`, `join_rejected`, `admin_promoted`, `message`, `typing`, `history`, `error`.
 
 ## LAN Real-Time Meeting & Screen Sharing (Rust WebRTC)
 
@@ -116,9 +160,5 @@ Forest Chat includes a pure Rust, real-time peer-to-peer LAN meeting and streami
 - **Windows Firewall**: When hosting for the first time, Windows Defender Firewall may display a prompt asking to allow network access. Click **"Allow access" on Private Networks** to permit incoming WebSocket signaling connections on port 8080.
 - **Port Selection**: If port `8080` is already in use by another local service, you can specify any open port (e.g., `8085` or `9000`) in the Host form before creating the room.
 
-## ⚠️ Not production-ready
 
-There are no accounts or passwords. Anyone who picks a name that is currently offline can
-read that name's direct-message history. Add real authentication before exposing this beyond
-your own machine or LAN.
 

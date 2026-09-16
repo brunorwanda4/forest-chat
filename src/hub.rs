@@ -121,6 +121,20 @@ impl Hub {
         }
     }
 
+    pub fn add_room(&self, room: &str) {
+        let mut inner = self.lock();
+        inner.rooms.entry(room.to_owned()).or_default();
+    }
+
+    pub fn send_to_users(&self, users: &[String], frame: &ByteString) {
+        let inner = self.lock();
+        for user in users {
+            if let Some(outbox) = inner.users.get(user) {
+                let _ = outbox.send(frame.clone());
+            }
+        }
+    }
+
     pub fn broadcast(&self, frame: &ByteString) {
         for outbox in self.lock().users.values() {
             let _ = outbox.send(frame.clone());

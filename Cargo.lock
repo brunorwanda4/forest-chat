@@ -2501,9 +2501,12 @@ dependencies = [
  "bytestring",
  "env_logger",
  "futures-util",
+ "hex",
  "log",
  "serde",
  "serde_json",
+ "sha2",
+ "tempfile",
  "tokio",
  "turso",
 ]

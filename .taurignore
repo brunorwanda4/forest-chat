@@ -1,0 +1,7 @@
+# UI files are live-reloaded by the dev server; editing them must not
+# trigger a Rust rebuild/restart under `cargo tauri dev`.
+static/
+*.db
+*.db-wal
+*.db-shm
+*.db-log

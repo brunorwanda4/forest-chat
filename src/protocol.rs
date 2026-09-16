@@ -19,6 +19,19 @@ pub enum Chat {
     Dm(String),
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemberInfo {
+    pub username: String,
+    pub role: String, // "creator", "admin", "member"
+    pub joined_ts: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RequestInfo {
+    pub username: String,
+    pub created_ts: i64,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ClientMsg {
@@ -27,6 +40,12 @@ pub enum ClientMsg {
     Send { chat: Chat, text: String },
     Typing { chat: Chat, active: bool },
     History { chat: Chat },
+    CreateRoom { room: String },
+    RequestJoin { room: String },
+    ApproveJoin { room: String, user: String },
+    RejectJoin { room: String, user: String },
+    PromoteAdmin { room: String, user: String },
+    GetRoomDetails { room: String },
 }
 
 #[derive(Debug, Serialize)]
@@ -36,12 +55,18 @@ pub enum ServerMsg<'a> {
         me: &'a str,
         users: Vec<String>,
         rooms: Vec<String>,
+        joined_rooms: Vec<String>,
+        pending_rooms: Vec<String>,
+        admin_rooms: Vec<String>,
     },
     Presence {
         users: Vec<String>,
     },
     Rooms {
         rooms: Vec<String>,
+        joined_rooms: Vec<String>,
+        pending_rooms: Vec<String>,
+        admin_rooms: Vec<String>,
     },
     Joined {
         room: &'a str,
@@ -63,6 +88,28 @@ pub enum ServerMsg<'a> {
     },
     Error {
         message: &'a str,
+    },
+    RoomDetails {
+        room: String,
+        is_admin: bool,
+        members: Vec<MemberInfo>,
+        requests: Vec<RequestInfo>,
+    },
+    JoinRequested {
+        room: String,
+        user: String,
+    },
+    JoinApproved {
+        room: String,
+        user: String,
+    },
+    JoinRejected {
+        room: String,
+        user: String,
+    },
+    AdminPromoted {
+        room: String,
+        user: String,
     },
 }
 

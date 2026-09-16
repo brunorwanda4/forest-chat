@@ -12,27 +12,179 @@ use serde::Deserialize;
 
 use crate::{db::Store, hub::Hub, protocol::valid_name};
 
-#[derive(Deserialize)]
-struct Login {
-    name: String,
-}
 
+/// Release builds embed the UI so the binary is self-contained.
+#[cfg(not(debug_assertions))]
 async fn index() -> HttpResponse {
     HttpResponse::Ok()
         .content_type("text/html; charset=utf-8")
         .body(include_str!("../static/index.html"))
 }
 
+/// Debug builds read the UI from disk on every request and inject a small
+/// script that reloads the page whenever `static/index.html` changes, so UI
+/// edits show up instantly without rebuilding Rust.
+#[cfg(debug_assertions)]
+mod dev_reload {
+    use std::{fs, time::UNIX_EPOCH};
+
+    use actix_web::HttpResponse;
+
+    const INDEX_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/static/index.html");
+
+    const RELOAD_SCRIPT: &str = r#"<script>
+(() => {
+  let current = null;
+  setInterval(async () => {
+    try {
+      const res = await fetch("/__dev/version", { cache: "no-store" });
+      const version = await res.text();
+      if (current === null) current = version;
+      else if (version !== current) location.reload();
+    } catch (_) {}
+  }, 500);
+})();
+</script>"#;
+
+    fn version() -> String {
+        fs::metadata(INDEX_PATH)
+            .and_then(|meta| meta.modified())
+            .ok()
+            .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+            .map(|elapsed| elapsed.as_nanos().to_string())
+            .unwrap_or_default()
+    }
+
+    pub async fn index() -> HttpResponse {
+        let html = match fs::read_to_string(INDEX_PATH) {
+            Ok(html) => html,
+            Err(error) => {
+                return HttpResponse::InternalServerError()
+                    .body(format!("cannot read {INDEX_PATH}: {error}"));
+            }
+        };
+        let html = match html.rfind("</body>") {
+            Some(end) => format!("{}{RELOAD_SCRIPT}{}", &html[..end], &html[end..]),
+            None => format!("{html}{RELOAD_SCRIPT}"),
+        };
+
+        HttpResponse::Ok()
+            .content_type("text/html; charset=utf-8")
+            .insert_header(("Cache-Control", "no-store"))
+            .body(html)
+    }
+
+    pub async fn version_route() -> HttpResponse {
+        HttpResponse::Ok()
+            .insert_header(("Cache-Control", "no-store"))
+            .body(version())
+    }
+}
+
+#[cfg(debug_assertions)]
+use dev_reload::index;
+
+#[derive(Deserialize)]
+struct AuthReq {
+    name: String,
+    password: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct VerifyReq {
+    name: String,
+    token: String,
+}
+
+#[derive(Deserialize)]
+struct WsLogin {
+    name: String,
+    token: Option<String>,
+}
+
+async fn api_register(
+    req: web::Json<AuthReq>,
+    store: web::Data<Store>,
+) -> HttpResponse {
+    let name = req.name.trim();
+    let password = req.password.as_deref().unwrap_or("").trim();
+    if !valid_name(name) {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "error": "Name must be 1-24 letters, numbers, - or _."
+        }));
+    }
+    if password.len() < 3 {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "error": "Password must be at least 3 characters."
+        }));
+    }
+
+    match store.register_user(name, password).await {
+        Ok(token) => HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "name": name,
+            "token": token
+        })),
+        Err(err) => HttpResponse::BadRequest().json(serde_json::json!({
+            "error": err
+        })),
+    }
+}
+
+async fn api_login(
+    req: web::Json<AuthReq>,
+    store: web::Data<Store>,
+) -> HttpResponse {
+    let name = req.name.trim();
+    let password = req.password.as_deref().unwrap_or("").trim();
+    if !valid_name(name) {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "error": "Invalid name."
+        }));
+    }
+
+    match store.authenticate_user(name, password).await {
+        Ok(token) => HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "name": name,
+            "token": token
+        })),
+        Err(err) => HttpResponse::Unauthorized().json(serde_json::json!({
+            "error": err
+        })),
+    }
+}
+
+async fn api_verify(
+    req: web::Json<VerifyReq>,
+    store: web::Data<Store>,
+) -> HttpResponse {
+    let valid = store.verify_token(req.name.trim(), req.token.trim()).await;
+    HttpResponse::Ok().json(serde_json::json!({
+        "valid": valid,
+        "name": req.name.trim()
+    }))
+}
+
 async fn chat_ws(
     req: HttpRequest,
     body: web::Payload,
-    login: web::Query<Login>,
+    login: web::Query<WsLogin>,
     hub: web::Data<Hub>,
     store: web::Data<Store>,
 ) -> Result<HttpResponse, Error> {
-    let name = login.into_inner().name.trim().to_owned();
+    let q = login.into_inner();
+    let name = q.name.trim().to_owned();
     if !valid_name(&name) {
         return Ok(HttpResponse::BadRequest().body("invalid name"));
+    }
+
+    if let Some(token) = q.token {
+        if !store.verify_token(&name, token.trim()).await {
+            return Ok(HttpResponse::Unauthorized().body("invalid session token"));
+        }
+    } else {
+        return Ok(HttpResponse::Unauthorized().body("token required"));
     }
 
     let (response, session, stream) = actix_ws::handle(&req, body)?;
@@ -57,12 +209,20 @@ pub async fn create_server(listener: TcpListener, db_path: PathBuf) -> io::Resul
     let hub = Hub::with_rooms(store.rooms().await.map_err(io::Error::other)?);
 
     Ok(HttpServer::new(move || {
-        App::new()
+        let app = App::new()
             .app_data(web::Data::new(hub.clone()))
             .app_data(web::Data::new(store.clone()))
             .wrap(Logger::new("%s %r %Dms"))
+            .route("/api/auth/register", web::post().to(api_register))
+            .route("/api/auth/login", web::post().to(api_login))
+            .route("/api/auth/verify", web::post().to(api_verify))
             .route("/ws", web::get().to(chat_ws))
-            .route("/", web::get().to(index))
+            .route("/", web::get().to(index));
+
+        #[cfg(debug_assertions)]
+        let app = app.route("/__dev/version", web::get().to(dev_reload::version_route));
+
+        app
     })
     .listen(listener)?
     .run())

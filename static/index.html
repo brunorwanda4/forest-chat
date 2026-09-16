@@ -19,35 +19,103 @@
 
   <body class="bg-base-300 h-dvh overflow-hidden">
     <!-- Login -->
-    <main id="login" class="hero h-full">
+    <main id="login" class="hero h-full overflow-y-auto py-8">
       <div class="hero-content w-full max-w-sm flex-col">
         <div class="avatar">
-          <div class="ring-primary ring-offset-base-300 w-28 rounded-full ring-2 ring-offset-4 bg-base-200">
+          <div class="ring-primary ring-offset-base-300 w-24 rounded-full ring-2 ring-offset-4 bg-base-200">
             <img id="login-avatar" alt="Your avatar" />
           </div>
         </div>
-        <h1 class="text-4xl font-bold">Forest Chat</h1>
-        <p class="text-base-content/70 text-center">Pick a name. Your avatar comes with it.</p>
+        <h1 class="text-3xl font-bold">Forest Chat</h1>
+        <p class="text-base-content/70 text-center text-sm">Real-time chat & meetings in your forest.</p>
 
-        <form id="login-form" class="card bg-base-100 w-full shadow-xl">
-          <div class="card-body gap-3">
-            <label class="input input-bordered w-full">
-              <span class="text-base-content/60">@</span>
-              <input
-                id="login-name"
-                type="text"
-                placeholder="your-name"
-                maxlength="24"
-                pattern="[\p{L}\p{N}_\-]+"
-                autocomplete="off"
-                required
-              />
-            </label>
-            <p class="text-base-content/60 text-xs">Letters, numbers, - and _ only.</p>
-            <p id="login-error" class="text-error hidden text-sm"></p>
-            <button class="btn btn-primary w-full">Enter the forest</button>
+        <!-- Saved / Remembered Accounts Quick Switch -->
+        <div id="saved-accounts-box" class="card bg-base-100 w-full shadow-xl hidden">
+          <div class="card-body p-4 gap-2">
+            <div class="flex items-center justify-between pb-1 border-b border-base-300">
+              <span class="text-xs font-bold uppercase tracking-wider text-base-content/60">Remembered Accounts</span>
+            </div>
+            <div id="saved-accounts-list" class="space-y-2 max-h-48 overflow-y-auto"></div>
+            <div class="divider my-1 text-xs text-base-content/50">or</div>
+            <button type="button" id="btn-show-auth-form" class="btn btn-outline btn-sm w-full">
+              Use Another Account
+            </button>
           </div>
-        </form>
+        </div>
+
+        <!-- Auth Form (Sign In / Create Account) -->
+        <div id="auth-box" class="card bg-base-100 w-full shadow-xl">
+          <div class="card-body p-5 gap-3">
+            <!-- Auth Mode Tabs -->
+            <div class="tabs tabs-boxed grid grid-cols-2 bg-base-200 p-1">
+              <button type="button" id="tab-auth-login" class="tab tab-active font-semibold text-xs">Sign In</button>
+              <button type="button" id="tab-auth-register" class="tab font-semibold text-xs">Create Account</button>
+            </div>
+
+            <form id="login-form" class="space-y-3">
+              <div>
+                <label class="label py-1">
+                  <span class="label-text text-xs font-medium">Username</span>
+                </label>
+                <label class="input input-bordered input-sm flex items-center gap-2 w-full">
+                  <span class="text-base-content/60 text-xs">@</span>
+                  <input
+                    id="login-name"
+                    type="text"
+                    placeholder="your-name"
+                    maxlength="24"
+                    pattern="[\p{L}\p{N}_\-]+"
+                    autocomplete="username"
+                    class="grow text-sm"
+                    required
+                  />
+                </label>
+              </div>
+
+              <div>
+                <label class="label py-1">
+                  <span class="label-text text-xs font-medium">Password</span>
+                </label>
+                <label class="input input-bordered input-sm flex items-center gap-2 w-full">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                  </svg>
+                  <input
+                    id="login-password"
+                    type="password"
+                    placeholder="password"
+                    minlength="3"
+                    autocomplete="current-password"
+                    class="grow text-sm"
+                    required
+                  />
+                  <button type="button" id="btn-toggle-pwd" class="btn btn-ghost btn-xs btn-circle opacity-60">
+                    👁️
+                  </button>
+                </label>
+              </div>
+
+              <div class="form-control">
+                <label class="label cursor-pointer justify-start gap-2 py-0">
+                  <input id="login-remember" type="checkbox" checked class="checkbox checkbox-primary checkbox-xs" />
+                  <span class="label-text text-xs font-medium">Remember my account on this device</span>
+                </label>
+              </div>
+
+              <p id="login-error" class="text-error hidden text-xs font-medium"></p>
+
+              <button id="btn-auth-submit" class="btn btn-primary btn-sm w-full">
+                Sign In
+              </button>
+
+              <div id="btn-back-saved-wrap" class="hidden text-center pt-1">
+                <button type="button" id="btn-back-saved" class="btn btn-link btn-xs text-base-content/70">
+                  ← Back to remembered accounts
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       </div>
     </main>
 
@@ -296,19 +364,15 @@
           </div>
 
           <div class="flex-1 overflow-y-auto p-2">
-            <h2 class="menu-title flex items-center justify-between">
-              Groups
-            </h2>
-            <form id="room-form" class="join mb-2 w-full px-2">
-              <input
-                id="room-input"
-                class="input input-sm input-bordered join-item flex-1"
-                placeholder="new or existing group"
-                maxlength="32"
-                autocomplete="off"
-              />
-              <button class="btn btn-sm btn-secondary join-item">Join</button>
-            </form>
+            <div class="flex items-center justify-between px-3 py-1 mb-1">
+              <span class="text-xs font-bold uppercase tracking-wider text-base-content/60">Groups</span>
+              <button type="button" id="btn-open-create-group" class="btn btn-xs btn-primary gap-1">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                </svg>
+                New Group
+              </button>
+            </div>
             <ul id="rooms" class="menu w-full gap-1"></ul>
 
             <h2 class="menu-title mt-4">People</h2>
@@ -316,11 +380,99 @@
           </div>
 
           <div class="border-base-300 border-t p-3">
-            <button id="logout" class="btn btn-ghost btn-sm w-full">Switch name</button>
+            <button id="logout" class="btn btn-ghost btn-sm w-full">Switch account</button>
           </div>
         </div>
       </aside>
     </div>
+
+    <!-- Create Group Modal -->
+    <dialog id="modal-create-group" class="modal">
+      <div class="modal-box">
+        <h3 class="font-bold text-lg flex items-center gap-2">
+          <span class="text-primary text-xl">👥</span> Create New Group
+        </h3>
+        <p class="py-2 text-xs text-base-content/70">
+          As the creator, you will be the group admin. Other people will see this group and can request to join. You can approve their requests and promote other members to admins.
+        </p>
+        <form id="form-create-group" class="space-y-4 pt-2">
+          <div class="form-control">
+            <label class="label py-1">
+              <span class="label-text text-xs font-semibold">Group Name</span>
+            </label>
+            <div class="join w-full">
+              <span class="join-item btn btn-sm btn-disabled font-mono">#</span>
+              <input
+                id="input-create-group-name"
+                type="text"
+                placeholder="project-forest"
+                class="input input-sm input-bordered join-item flex-1 font-mono"
+                maxlength="32"
+                pattern="[\p{L}\p{N}_\-]+"
+                required
+              />
+            </div>
+            <label class="label py-1">
+              <span class="label-text-alt text-base-content/60">Letters, numbers, - and _ only (max 32).</span>
+            </label>
+          </div>
+          <div class="modal-action">
+            <button type="button" class="btn btn-sm btn-ghost" onclick="$('modal-create-group').close()">Cancel</button>
+            <button type="submit" class="btn btn-sm btn-primary">Create Group</button>
+          </div>
+        </form>
+      </div>
+      <form method="dialog" class="modal-backdrop"><button>close</button></form>
+    </dialog>
+
+    <!-- Request Join Modal -->
+    <dialog id="modal-request-join" class="modal">
+      <div class="modal-box">
+        <h3 id="modal-request-join-title" class="font-bold text-lg flex items-center gap-2">
+          <span class="text-secondary text-xl">🔒</span> Request to Join Group
+        </h3>
+        <p id="modal-request-join-desc" class="py-3 text-sm text-base-content/70">
+          This group requires admin approval. Would you like to request to join? Once an admin approves you, you will be able to view messages and chat.
+        </p>
+        <div class="modal-action">
+          <button type="button" class="btn btn-sm btn-ghost" onclick="$('modal-request-join').close()">Cancel</button>
+          <button id="btn-submit-request-join" type="button" class="btn btn-sm btn-primary">Send Join Request</button>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop"><button>close</button></form>
+    </dialog>
+
+    <!-- Manage Group Modal -->
+    <dialog id="modal-manage-group" class="modal">
+      <div class="modal-box max-w-lg">
+        <div class="flex items-center justify-between pb-3 border-b border-base-300">
+          <h3 id="manage-group-title" class="font-bold text-lg flex items-center gap-2">
+            <span class="text-primary text-xl">🛡️</span> Manage Group
+          </h3>
+          <button type="button" class="btn btn-sm btn-ghost btn-circle" onclick="$('modal-manage-group').close()">✕</button>
+        </div>
+
+        <div class="tabs tabs-bordered grid grid-cols-2 mt-3">
+          <button type="button" id="tab-manage-requests" class="tab tab-active font-semibold text-xs sm:text-sm">
+            Join Requests <span id="badge-requests-count" class="badge badge-sm badge-primary ml-1 hidden">0</span>
+          </button>
+          <button type="button" id="tab-manage-members" class="tab font-semibold text-xs sm:text-sm">
+            Members & Admins
+          </button>
+        </div>
+
+        <!-- Requests Panel -->
+        <div id="panel-manage-requests" class="py-3 space-y-2 max-h-72 overflow-y-auto">
+          <div id="list-manage-requests" class="space-y-2"></div>
+        </div>
+
+        <!-- Members Panel -->
+        <div id="panel-manage-members" class="hidden py-3 space-y-2 max-h-72 overflow-y-auto">
+          <div id="list-manage-members" class="space-y-2"></div>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop"><button>close</button></form>
+    </dialog>
 
     <div id="toast" class="toast toast-top toast-end z-50"></div>
 
@@ -379,11 +531,15 @@
 
       const state = {
         me: null,
+        token: null,
         ws: null,
         retry: null,
         users: [],
         rooms: [],
         joined: new Set(),
+        pending: new Set(),
+        adminRooms: new Set(),
+        activeRoomDetails: null,
         dmPeers: new Set(),
         active: null,
         /** key -> { messages, loaded, unread } */
@@ -392,6 +548,8 @@
         typing: new Map(),
         typingSentFor: null,
         typingTimer: null,
+        authMode: "login", // "login" | "register"
+        pendingJoinRoom: null,
       };
 
       function chatState(chat) {
@@ -404,15 +562,117 @@
         if (state.ws?.readyState === WebSocket.OPEN) state.ws.send(JSON.stringify(payload));
       }
 
-      const storageKey = () => `forest-chat:${state.me}:groups`;
-      const saveJoined = () => localStorage.setItem(storageKey(), JSON.stringify([...state.joined]));
+      // ---------- account persistence ----------
+
+      const ACCOUNTS_KEY = "forest-chat:saved-accounts";
+      const ACTIVE_KEY = "forest-chat:active-account";
+
+      function getSavedAccounts() {
+        try { return JSON.parse(localStorage.getItem(ACCOUNTS_KEY) || "[]"); }
+        catch (_) { return []; }
+      }
+
+      function saveAccount(name, token) {
+        const accounts = getSavedAccounts().filter((a) => a.name !== name);
+        accounts.unshift({ name, token, lastUsed: Date.now() });
+        localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts));
+        localStorage.setItem(ACTIVE_KEY, JSON.stringify({ name, token }));
+      }
+
+      function removeSavedAccount(name) {
+        const accounts = getSavedAccounts().filter((a) => a.name !== name);
+        localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts));
+        const active = getActiveAccount();
+        if (active?.name === name) localStorage.removeItem(ACTIVE_KEY);
+        renderSavedAccounts();
+      }
+
+      function getActiveAccount() {
+        try { return JSON.parse(localStorage.getItem(ACTIVE_KEY) || "null"); }
+        catch (_) { return null; }
+      }
+
+      function renderSavedAccounts() {
+        const accounts = getSavedAccounts();
+        const box = $("saved-accounts-box");
+        const list = $("saved-accounts-list");
+        const authBox = $("auth-box");
+        const backWrap = $("btn-back-saved-wrap");
+
+        if (accounts.length === 0) {
+          box.classList.add("hidden");
+          authBox.classList.remove("hidden");
+          backWrap.classList.add("hidden");
+          return;
+        }
+
+        box.classList.remove("hidden");
+        authBox.classList.add("hidden");
+        backWrap.classList.remove("hidden");
+
+        const nodes = accounts.map((acc) => {
+          return h("div", { class: "flex items-center gap-2 p-2 bg-base-200 rounded-lg hover:bg-base-300 transition-colors" },
+            avatar(avatarUrl(acc.name), "w-9"),
+            h("div", { class: "flex-1 min-w-0 cursor-pointer", onclick: () => loginWithSavedAccount(acc) },
+              h("div", { class: "font-semibold text-xs truncate" }, `@${acc.name}`),
+              h("div", { class: "text-[11px] text-base-content/60" }, "Click to sign in")),
+            h("button", {
+              type: "button",
+              class: "btn btn-xs btn-primary",
+              onclick: () => loginWithSavedAccount(acc),
+            }, "Sign In"),
+            h("button", {
+              type: "button",
+              class: "btn btn-xs btn-ghost btn-circle text-base-content/50 hover:text-error",
+              title: "Remove saved account",
+              onclick: (e) => { e.stopPropagation(); removeSavedAccount(acc.name); },
+            }, "✕"),
+          );
+        });
+
+        list.replaceChildren(...nodes);
+      }
+
+      async function loginWithSavedAccount(acc) {
+        setStatus("verifying…", "badge-ghost");
+        try {
+          const res = await fetch("/api/auth/verify", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: acc.name, token: acc.token }),
+          });
+          const data = await res.json();
+          if (data.valid) {
+            saveAccount(acc.name, acc.token);
+            connect(acc.name, acc.token);
+          } else {
+            removeSavedAccount(acc.name);
+            showAuthForm();
+            $("login-name").value = acc.name;
+            updateLoginAvatar();
+            showLogin("Session expired. Please enter your password.");
+          }
+        } catch (err) {
+          toast(`Connection error: ${err}`, "error");
+        }
+      }
+
+      function showAuthForm() {
+        $("saved-accounts-box").classList.add("hidden");
+        $("auth-box").classList.remove("hidden");
+        $("login-name").focus();
+      }
 
       // ---------- connection ----------
 
-      function connect(name) {
+      function connect(name, token) {
         clearTimeout(state.retry);
+        state.me = name;
+        state.token = token;
         const proto = location.protocol === "https:" ? "wss" : "ws";
-        const ws = new WebSocket(`${proto}://${location.host}/ws?name=${encodeURIComponent(name)}`);
+        const ws = new WebSocket(
+          `${proto}://${location.host}/ws?name=${encodeURIComponent(name)}&token=${encodeURIComponent(token)}`
+        );
         state.ws = ws;
         let rejected = false;
         setStatus("connecting…", "badge-ghost");
@@ -431,7 +691,9 @@
           if (state.ws !== ws) return;
           if (rejected || !state.me) return;
           setStatus("offline", "badge-error");
-          state.retry = setTimeout(() => connect(state.me), 2000);
+          state.retry = setTimeout(() => {
+            if (state.me && state.token) connect(state.me, state.token);
+          }, 2000);
         };
       }
 
@@ -443,24 +705,20 @@
 
       const handlers = {
         welcome(msg) {
-          const firstTime = state.me !== msg.me;
           state.me = msg.me;
-          localStorage.setItem("forest-chat:name", msg.me);
           state.users = msg.users;
           state.rooms = msg.rooms;
+          state.joined = new Set(msg.joined_rooms);
+          state.pending = new Set(msg.pending_rooms);
+          state.adminRooms = new Set(msg.admin_rooms);
           setStatus("online", "badge-success");
 
-          if (firstTime) {
-            const saved = JSON.parse(localStorage.getItem(storageKey()) || '["general"]');
-            state.joined = new Set(saved);
-          }
-          // Everything may have changed while we were away: refetch lazily.
           for (const chat of state.chats.values()) chat.loaded = false;
           state.typing.clear();
           for (const room of state.joined) send({ type: "join", room });
 
           showApp();
-          if (state.active) openChat(state.active);
+          if (state.active && state.joined.has(state.active.id)) openChat(state.active);
           else if (state.joined.has("general")) openChat({ kind: "room", id: "general" });
           render();
         },
@@ -472,16 +730,65 @@
 
         rooms(msg) {
           state.rooms = msg.rooms;
+          state.joined = new Set(msg.joined_rooms);
+          state.pending = new Set(msg.pending_rooms);
+          state.adminRooms = new Set(msg.admin_rooms);
           renderRooms();
+          renderHeader();
         },
 
         joined(msg) {
           const isNew = !state.joined.has(msg.room);
           state.joined.add(msg.room);
-          saveJoined();
+          state.pending.delete(msg.room);
           if (isNew) openChat({ kind: "room", id: msg.room });
           else if (sameChat(state.active, { kind: "room", id: msg.room })) requestHistory(state.active);
           renderRooms();
+          renderHeader();
+        },
+
+        room_details(msg) {
+          state.activeRoomDetails = msg;
+          renderManageGroupModal();
+          renderHeader();
+        },
+
+        join_requested(msg) {
+          toast(`@${msg.user} requested to join #${msg.room}`, "info");
+          if (state.active?.kind === "room" && state.active.id === msg.room && state.adminRooms.has(msg.room)) {
+            send({ type: "get_room_details", room: msg.room });
+          }
+        },
+
+        join_approved(msg) {
+          if (msg.user === state.me) {
+            toast(`Your request to join #${msg.room} was approved! 🎉`, "success");
+            state.joined.add(msg.room);
+            state.pending.delete(msg.room);
+            send({ type: "join", room: msg.room });
+            openChat({ kind: "room", id: msg.room });
+            renderRooms();
+          }
+        },
+
+        join_rejected(msg) {
+          if (msg.user === state.me) {
+            toast(`Your request to join #${msg.room} was declined.`, "warning");
+            state.pending.delete(msg.room);
+            renderRooms();
+          }
+        },
+
+        admin_promoted(msg) {
+          if (msg.user === state.me) {
+            toast(`You were promoted to Admin in #${msg.room}! 🛡️`, "success");
+            state.adminRooms.add(msg.room);
+            renderRooms();
+            renderHeader();
+          }
+          if (state.active?.kind === "room" && state.active.id === msg.room) {
+            send({ type: "get_room_details", room: msg.room });
+          }
         },
 
         history(msg) {
@@ -527,6 +834,10 @@
         if (chat.kind === "dm") state.dmPeers.add(chat.id);
         if (!cs.loaded) requestHistory(chat);
 
+        if (chat.kind === "room" && state.adminRooms.has(chat.id)) {
+          send({ type: "get_room_details", room: chat.id });
+        }
+
         $("composer-input").disabled = false;
         $("composer-send").disabled = false;
         $("composer-input").placeholder =
@@ -543,7 +854,6 @@
       function leaveRoom(room) {
         send({ type: "leave", room });
         state.joined.delete(room);
-        saveJoined();
         if (sameChat(state.active, { kind: "room", id: room })) {
           state.active = null;
           $("composer-input").disabled = true;
@@ -611,12 +921,12 @@
         $("me").replaceChildren(
           avatar(avatarUrl(state.me), "w-12", true),
           h("div", { class: "min-w-0" },
-            h("div", { class: "font-semibold truncate" }, state.me),
+            h("div", { class: "font-semibold truncate" }, `@${state.me}`),
             h("div", { class: "text-xs text-base-content/60" }, `${state.users.length} online`)),
         );
       }
 
-      function sidebarItem({ chat, img, online, title, subtitle, action }) {
+      function sidebarItem({ chat, img, online, title, subtitle, badge, action }) {
         const cs = state.chats.get(chatKey(chat));
         const typers = typersOf(chat);
         const active = sameChat(state.active, chat);
@@ -624,7 +934,9 @@
           h("a", { class: `flex items-center gap-3 ${active ? "menu-active" : ""}`, onclick: () => openChat(chat) },
             avatar(img, "w-9", online),
             h("div", { class: "min-w-0 flex-1" },
-              h("div", { class: "truncate font-medium" }, title),
+              h("div", { class: "truncate font-medium flex items-center gap-1.5" },
+                title,
+                badge),
               typers.length
                 ? h("div", { class: "text-xs text-success flex items-center gap-1" },
                     h("span", { class: "loading loading-dots loading-xs" }), "typing")
@@ -646,25 +958,42 @@
 
         const items = joined.map((room) => {
           const chat = { kind: "room", id: room };
+          const isAdmin = state.adminRooms.has(room);
           return sidebarItem({
             chat,
             img: roomAvatarUrl(room),
             title: `# ${room}`,
             subtitle: lastLine(chat),
-            action: h("button", {
-              class: "btn btn-ghost btn-xs",
+            badge: isAdmin ? h("span", { class: "badge badge-xs badge-primary font-bold" }, "ADMIN") : null,
+            action: room !== "general" ? h("button", {
+              class: "btn btn-ghost btn-xs opacity-60 hover:opacity-100",
               title: "Leave group",
               onclick: (e) => { e.stopPropagation(); leaveRoom(room); },
-            }, "✕"),
+            }, "✕") : null,
           });
         });
 
         for (const room of others) {
+          const isPending = state.pending.has(room);
           items.push(h("li", {},
-            h("a", { class: "flex items-center gap-3 opacity-70", onclick: () => send({ type: "join", room }) },
+            h("a", {
+              class: "flex items-center gap-3 opacity-80 hover:opacity-100",
+              onclick: () => {
+                if (isPending) {
+                  toast(`Your request to join #${room} is waiting for admin approval.`, "info");
+                } else {
+                  openRequestJoinModal(room);
+                }
+              }
+            },
               avatar(roomAvatarUrl(room), "w-9"),
-              h("span", { class: "flex-1 truncate" }, `# ${room}`),
-              h("span", { class: "badge badge-outline badge-sm" }, "join"))));
+              h("div", { class: "flex-1 min-w-0" },
+                h("span", { class: "truncate block font-medium" }, `# ${room}`),
+                h("span", { class: "text-[11px] text-base-content/60 block truncate" },
+                  isPending ? "Pending approval..." : "Approval required")),
+              h("span", {
+                class: `badge badge-sm ${isPending ? "badge-warning" : "badge-outline badge-secondary"}`
+              }, isPending ? "Pending" : "Ask to Join"))));
         }
 
         $("rooms").replaceChildren(...items);
@@ -682,7 +1011,7 @@
             chat,
             img: avatarUrl(name),
             online: online.has(name),
-            title: name,
+            title: `@${name}`,
             subtitle: lastLine(chat) ?? (online.has(name) ? "online" : "offline"),
           });
         });
@@ -700,13 +1029,32 @@
         }
         const isRoom = chat.kind === "room";
         const online = state.users.includes(chat.id);
-        $("chat-head").replaceChildren(
+        const isAdmin = isRoom && state.adminRooms.has(chat.id);
+        const pendingCount = (state.activeRoomDetails?.room === chat.id && state.activeRoomDetails?.requests?.length) || 0;
+
+        const left = h("div", { class: "flex items-center gap-3 min-w-0 flex-1" },
           avatar(isRoom ? roomAvatarUrl(chat.id) : avatarUrl(chat.id), "w-10", isRoom ? null : online),
           h("div", { class: "min-w-0" },
-            h("div", { class: "font-semibold truncate" }, isRoom ? `# ${chat.id}` : chat.id),
+            h("div", { class: "font-semibold truncate flex items-center gap-2" },
+              isRoom ? `# ${chat.id}` : `@${chat.id}`,
+              isAdmin ? h("span", { class: "badge badge-xs badge-primary font-bold" }, "ADMIN") : null),
             h("div", { class: "text-xs text-base-content/60" },
-              isRoom ? "Group chat" : online ? "Online" : "Offline — they'll see it later")),
+              isRoom ? (isAdmin ? "Group admin" : "Group chat") : online ? "Online" : "Offline — they'll see it later")),
         );
+
+        const nodes = [left];
+
+        if (isAdmin) {
+          nodes.push(h("button", {
+            type: "button",
+            class: "btn btn-sm btn-outline btn-primary gap-1 ml-auto",
+            onclick: () => openManageGroupModal(chat.id),
+          },
+            "🛡️ Manage",
+            pendingCount > 0 ? h("span", { class: "badge badge-xs badge-error text-white font-bold" }, pendingCount) : null));
+        }
+
+        $("chat-head").replaceChildren(...nodes);
       }
 
       function renderMessages() {
@@ -758,7 +1106,7 @@
             h("div", { class: `w-10 rounded-full bg-base-300 ${grouped ? "invisible" : ""}` },
               h("img", { src: avatarUrl(m.from), alt: m.from }))),
           grouped ? null : h("div", { class: "chat-header" },
-            mine ? "You" : m.from,
+            mine ? "You" : `@${m.from}`,
             h("time", { class: "text-xs opacity-50 ml-1" }, timeFmt.format(date))),
           h("div", {
             class: `chat-bubble max-w-[min(75%,36rem)] whitespace-pre-wrap break-words ${mine ? "chat-bubble-primary" : "chat-bubble-incoming"}`,
@@ -775,8 +1123,8 @@
           return;
         }
         const who =
-          typers.length === 1 ? `${typers[0]} is typing`
-          : typers.length === 2 ? `${typers[0]} and ${typers[1]} are typing`
+          typers.length === 1 ? `@${typers[0]} is typing`
+          : typers.length === 2 ? `@${typers[0]} and @${typers[1]} are typing`
           : `${typers.length} people are typing`;
         el.replaceChildren(
           h("div", { class: "avatar-group -space-x-3" },
@@ -786,18 +1134,152 @@
         );
       }
 
+      // ---------- modals & group actions ----------
+
+      function openRequestJoinModal(room) {
+        state.pendingJoinRoom = room;
+        $("modal-request-join-title").textContent = `Request to Join #${room}`;
+        $("modal-request-join-desc").textContent =
+          `#${room} requires admin approval. Click below to send a request to join. You will be able to view messages and chat once an admin approves your request.`;
+        $("modal-request-join").showModal();
+      }
+
+      $("btn-submit-request-join").addEventListener("click", () => {
+        if (!state.pendingJoinRoom) return;
+        send({ type: "request_join", room: state.pendingJoinRoom });
+        toast(`Join request sent for #${state.pendingJoinRoom}!`, "info");
+        state.pending.add(state.pendingJoinRoom);
+        renderRooms();
+        $("modal-request-join").close();
+      });
+
+      $("btn-open-create-group").addEventListener("click", () => {
+        $("input-create-group-name").value = "";
+        $("modal-create-group").showModal();
+        $("input-create-group-name").focus();
+      });
+
+      $("form-create-group").addEventListener("submit", (e) => {
+        e.preventDefault();
+        const room = $("input-create-group-name").value.trim();
+        if (!ROOM_RE.test(room)) return toast("Group names: 1–32 letters, numbers, - or _.");
+        send({ type: "create_room", room });
+        $("modal-create-group").close();
+        toast(`Creating group #${room}…`, "info");
+      });
+
+      function openManageGroupModal(room) {
+        $("manage-group-title").textContent = `Manage #${room}`;
+        send({ type: "get_room_details", room });
+        $("modal-manage-group").showModal();
+      }
+
+      $("tab-manage-requests").addEventListener("click", () => {
+        $("tab-manage-requests").className = "tab tab-active font-semibold text-xs sm:text-sm";
+        $("tab-manage-members").className = "tab font-semibold text-xs sm:text-sm";
+        $("panel-manage-requests").classList.remove("hidden");
+        $("panel-manage-members").classList.add("hidden");
+      });
+
+      $("tab-manage-members").addEventListener("click", () => {
+        $("tab-manage-members").className = "tab tab-active font-semibold text-xs sm:text-sm";
+        $("tab-manage-requests").className = "tab font-semibold text-xs sm:text-sm";
+        $("panel-manage-members").classList.remove("hidden");
+        $("panel-manage-requests").classList.add("hidden");
+      });
+
+      function renderManageGroupModal() {
+        const details = state.activeRoomDetails;
+        if (!details) return;
+
+        const reqCountBadge = $("badge-requests-count");
+        if (details.requests?.length > 0) {
+          reqCountBadge.textContent = details.requests.length;
+          reqCountBadge.classList.remove("hidden");
+        } else {
+          reqCountBadge.classList.add("hidden");
+        }
+
+        // Render requests
+        const reqList = $("list-manage-requests");
+        if (!details.requests || details.requests.length === 0) {
+          reqList.replaceChildren(
+            h("div", { class: "py-6 text-center text-xs text-base-content/50" }, "No pending join requests.")
+          );
+        } else {
+          const rows = details.requests.map((req) => {
+            const timeStr = timeFmt.format(new Date(req.created_ts));
+            return h("div", { class: "flex items-center gap-3 p-2 bg-base-200 rounded-lg justify-between" },
+              h("div", { class: "flex items-center gap-2 min-w-0" },
+                avatar(avatarUrl(req.username), "w-8"),
+                h("div", { class: "min-w-0" },
+                  h("div", { class: "font-semibold text-xs truncate" }, `@${req.username}`),
+                  h("div", { class: "text-[10px] text-base-content/60" }, `Requested at ${timeStr}`))),
+              h("div", { class: "flex items-center gap-1.5" },
+                h("button", {
+                  type: "button",
+                  class: "btn btn-xs btn-success text-white",
+                  onclick: () => send({ type: "approve_join", room: details.room, user: req.username }),
+                }, "Approve"),
+                h("button", {
+                  type: "button",
+                  class: "btn btn-xs btn-ghost text-error hover:bg-error/20",
+                  onclick: () => send({ type: "reject_join", room: details.room, user: req.username }),
+                }, "Decline")),
+            );
+          });
+          reqList.replaceChildren(...rows);
+        }
+
+        // Render members
+        const memberList = $("list-manage-members");
+        if (!details.members || details.members.length === 0) {
+          memberList.replaceChildren(
+            h("div", { class: "py-6 text-center text-xs text-base-content/50" }, "No members found.")
+          );
+        } else {
+          const rows = details.members.map((m) => {
+            const isCreator = m.role === "creator";
+            const isAdmin = m.role === "admin" || isCreator;
+            const isMe = m.username === state.me;
+
+            return h("div", { class: "flex items-center gap-3 p-2 bg-base-200 rounded-lg justify-between" },
+              h("div", { class: "flex items-center gap-2 min-w-0" },
+                avatar(avatarUrl(m.username), "w-8"),
+                h("div", { class: "min-w-0" },
+                  h("div", { class: "font-semibold text-xs truncate flex items-center gap-1.5" },
+                    `@${m.username}`,
+                    isMe ? h("span", { class: "badge badge-xs badge-ghost" }, "you") : null),
+                  h("div", { class: "text-[10px] text-base-content/60" },
+                    isCreator ? "Group Creator" : isAdmin ? "Admin" : "Member"))),
+              h("div", { class: "flex items-center gap-2" },
+                isCreator ? h("span", { class: "badge badge-xs badge-warning font-bold gap-1" }, "👑 CREATOR")
+                : isAdmin ? h("span", { class: "badge badge-xs badge-primary font-bold gap-1" }, "🛡️ ADMIN")
+                : h("button", {
+                    type: "button",
+                    class: "btn btn-xs btn-outline btn-primary gap-1",
+                    title: "Promote member to group admin",
+                    onclick: () => send({ type: "promote_admin", room: details.room, user: m.username }),
+                  }, "+ Make Admin")),
+            );
+          });
+          memberList.replaceChildren(...rows);
+        }
+      }
+
       // ---------- screens ----------
 
       function showLogin(error) {
         state.me = null;
+        state.token = null;
         state.ws?.close();
         state.ws = null;
         $("app").classList.add("hidden");
         $("login").classList.remove("hidden");
         $("login-error").textContent = error ?? "";
         $("login-error").classList.toggle("hidden", !error);
+        renderSavedAccounts();
         updateLoginAvatar();
-        $("login-name").focus();
       }
 
       function showApp() {
@@ -811,17 +1293,87 @@
 
       // ---------- events ----------
 
+      $("tab-auth-login").addEventListener("click", () => {
+        state.authMode = "login";
+        $("tab-auth-login").className = "tab tab-active font-semibold text-xs";
+        $("tab-auth-register").className = "tab font-semibold text-xs";
+        $("btn-auth-submit").textContent = "Sign In";
+        $("login-error").classList.add("hidden");
+      });
+
+      $("tab-auth-register").addEventListener("click", () => {
+        state.authMode = "register";
+        $("tab-auth-register").className = "tab tab-active font-semibold text-xs";
+        $("tab-auth-login").className = "tab font-semibold text-xs";
+        $("btn-auth-submit").textContent = "Create Account";
+        $("login-error").classList.add("hidden");
+      });
+
+      $("btn-show-auth-form").addEventListener("click", showAuthForm);
+
+      $("btn-back-saved").addEventListener("click", () => {
+        renderSavedAccounts();
+      });
+
+      $("btn-toggle-pwd").addEventListener("click", () => {
+        const input = $("login-password");
+        input.type = input.type === "password" ? "text" : "password";
+      });
+
       $("login-name").addEventListener("input", updateLoginAvatar);
 
-      $("login-form").addEventListener("submit", (e) => {
+      $("login-form").addEventListener("submit", async (e) => {
         e.preventDefault();
         const name = $("login-name").value.trim();
-        if (!NAME_RE.test(name)) return showLogin("Use 1–24 letters, numbers, - or _.");
-        state.active = null;
-        state.chats.clear();
-        state.dmPeers.clear();
-        state.pendingName = name;
-        connect(name);
+        const password = $("login-password").value;
+        const remember = $("login-remember").checked;
+
+        if (!NAME_RE.test(name)) {
+          $("login-error").textContent = "Use 1–24 letters, numbers, - or _.";
+          $("login-error").classList.remove("hidden");
+          return;
+        }
+        if (password.length < 3) {
+          $("login-error").textContent = "Password must be at least 3 characters.";
+          $("login-error").classList.remove("hidden");
+          return;
+        }
+
+        const endpoint = state.authMode === "register" ? "/api/auth/register" : "/api/auth/login";
+        $("btn-auth-submit").disabled = true;
+        $("login-error").classList.add("hidden");
+
+        try {
+          const res = await fetch(endpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name, password }),
+          });
+          const data = await res.json();
+          $("btn-auth-submit").disabled = false;
+
+          if (!res.ok || data.error) {
+            $("login-error").textContent = data.error || "Authentication failed.";
+            $("login-error").classList.remove("hidden");
+            return;
+          }
+
+          if (remember) {
+            saveAccount(data.name, data.token);
+          } else {
+            localStorage.setItem(ACTIVE_KEY, JSON.stringify({ name: data.name, token: data.token }));
+          }
+
+          state.active = null;
+          state.chats.clear();
+          state.dmPeers.clear();
+          $("login-password").value = "";
+          connect(data.name, data.token);
+        } catch (err) {
+          $("btn-auth-submit").disabled = false;
+          $("login-error").textContent = `Server error: ${err}`;
+          $("login-error").classList.remove("hidden");
+        }
       });
 
       $("composer").addEventListener("submit", (e) => {
@@ -841,28 +1393,35 @@
 
       $("composer-input").addEventListener("blur", stopTyping);
 
-      $("room-form").addEventListener("submit", (e) => {
-        e.preventDefault();
-        const room = $("room-input").value.trim();
-        if (!ROOM_RE.test(room)) return toast("Group names: 1–32 letters, numbers, - or _.");
-        if (state.joined.has(room)) openChat({ kind: "room", id: room });
-        else send({ type: "join", room });
-        $("room-input").value = "";
-      });
-
       $("logout").addEventListener("click", () => {
-        localStorage.removeItem("forest-chat:name");
+        localStorage.removeItem(ACTIVE_KEY);
         showLogin();
       });
 
       // ---------- boot ----------
 
-      const savedName = localStorage.getItem("forest-chat:name");
-      if (savedName && NAME_RE.test(savedName)) {
-        $("login-name").value = savedName;
-        connect(savedName);
+      async function boot() {
+        updateLoginAvatar();
+        const active = getActiveAccount();
+        if (active?.name && active?.token) {
+          try {
+            const res = await fetch("/api/auth/verify", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ name: active.name, token: active.token }),
+            });
+            const data = await res.json();
+            if (data.valid) {
+              connect(active.name, active.token);
+              return;
+            }
+          } catch (_) {}
+          localStorage.removeItem(ACTIVE_KEY);
+        }
+        showLogin();
       }
-      updateLoginAvatar();
+
+      boot();
 
       // ==========================================
       // ---------- LAN MEETING MODULE ----------
