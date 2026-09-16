@@ -168,6 +168,15 @@ mod dev_reload {
 #[cfg(debug_assertions)]
 use dev_reload::{app_css, app_js, index, pip, pip_js};
 
+/// Brand logo for the login header and favicon. Rebuilt from assets/logo.png
+/// by src-tauri/icons/generate.py; it rarely changes, so no dev reload.
+async fn logo_png() -> HttpResponse {
+    HttpResponse::Ok()
+        .content_type("image/png")
+        .insert_header(("Cache-Control", "public, max-age=86400"))
+        .body(&include_bytes!("../static/logo.png")[..])
+}
+
 #[derive(Deserialize)]
 struct AuthReq {
     name: String,
@@ -357,6 +366,7 @@ pub async fn create_server(listener: TcpListener, db_path: PathBuf) -> io::Resul
             .route("/pip", web::get().to(pip))
             .route("/pip.js", web::get().to(pip_js))
             .route("/app.css", web::get().to(app_css))
+            .route("/logo.png", web::get().to(logo_png))
             .route("/", web::get().to(index));
 
         #[cfg(debug_assertions)]
