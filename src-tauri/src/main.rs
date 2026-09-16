@@ -1,11 +1,37 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::{env, fs, net::TcpListener, sync::mpsc, thread, time::Duration};
+use std::{env, fs, io, net::TcpListener, path::Path, sync::mpsc, thread, time::Duration};
 
 use tauri::{Manager, WebviewUrl, webview::WebviewWindowBuilder};
 
 mod attachments;
 mod lan_meeting;
+
+/// Binds the chat server to the same port it used last time, when that port is
+/// still free.
+///
+/// The UI keeps the session token in `localStorage`, which the webview scopes to
+/// `http://127.0.0.1:<port>`. A fresh port on every launch would look like a new
+/// origin and silently sign the user out, so the port is remembered next to the
+/// database. If it is taken, the OS picks one and that choice is remembered
+/// instead.
+fn bind_stable_port(app_data: &Path) -> io::Result<TcpListener> {
+    let port_file = app_data.join("port");
+
+    if let Some(port) = fs::read_to_string(&port_file)
+        .ok()
+        .and_then(|saved| saved.trim().parse::<u16>().ok())
+        .filter(|port| *port != 0)
+    {
+        if let Ok(listener) = TcpListener::bind(("127.0.0.1", port)) {
+            return Ok(listener);
+        }
+    }
+
+    let listener = TcpListener::bind(("127.0.0.1", 0))?;
+    let _ = fs::write(&port_file, listener.local_addr()?.port().to_string());
+    Ok(listener)
+}
 
 fn main() {
     tauri::Builder::default()
@@ -32,7 +58,7 @@ fn main() {
                     let app_data = app.path().app_data_dir()?;
                     fs::create_dir_all(&app_data)?;
 
-                    let listener = TcpListener::bind(("127.0.0.1", 0))?;
+                    let listener = bind_stable_port(&app_data)?;
                     let port = listener.local_addr()?.port();
                     let database = app_data.join("forest-chat.db");
                     let (ready_tx, ready_rx) = mpsc::sync_channel(1);
